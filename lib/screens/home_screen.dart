@@ -10,13 +10,14 @@ import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sailogger719/screens/ssh_update.dart';
 
-class SSHFileTransferScreen extends StatefulWidget {
+class HomeScreen extends StatefulWidget {
   @override
-  _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
+  _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
+class _HomeScreenState extends State<HomeScreen> {
   final String host = '172.24.1.1';
   final int port = 22;
   final String username = 'skyflix';
@@ -24,6 +25,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   final Dio _dio = Dio();
   bool is_download = false;
   bool is_install = false;
+  bool is_verify = false;
   bool error_download = false;
   double status_download = 0.0;
   String _filePath = '';
@@ -343,42 +345,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              is_download
-                  ? CircularPercentIndicator(
-                      radius: 100.0,
-                      lineWidth: 20.0,
-                      animateFromLastPercent: true,
-                      animation: true,
-                      percent: status_download / 100,
-                      center: error_download
-                          ? IconButton(
-                              onPressed: () {
-                                downloadFile(down_link, down_filename);
-                              },
-                              icon: Icon(
-                                Icons.refresh,
-                                size: 45.0,
-                                color: slapp_color.secondary,
-                              ))
-                          : Text(
-                              status_download
-                                      .toStringAsFixed(0)
-                                      .replaceAll('.0', '') +
-                                  "%",
-                              style: TextStyle(
-                                  color: slapp_color.secondary, fontSize: 26.0),
-                            ),
-                      progressColor: error_download
-                          ? slapp_color.error
-                          : slapp_color.primary,
-                    )
-                  : Icon(
-                      Icons.update,
-                      size: 120,
-                      color: slapp_color.tertiary,
-                    ),
-              SizedBox(
-                height: 16.9,
+      Image.asset(
+                'assets/images/icon_sl.png',
+                fit: BoxFit.fill,
+                height: 100.0,
+                width: 100.0,
               ),
               Padding(
                 padding: EdgeInsets.all(20.0),
@@ -387,13 +358,23 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                     text: TextSpan(
                       style: TextStyle(color: slapp_color.secondary),
                       children: const <TextSpan>[
-         
+                        
                         TextSpan(
                             text:
-                                'Please follow 2 steps bellow to update your ',
+                                'Welcome to ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
-                            text: 'SAILOGGER-SOFTWARE ',
+                            text:
+                                'SAILOGGER 7.19 - UPDATER, ',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: slapp_color.primary)),
+                        TextSpan(
+                            text:
+                                'Please click button bellow to ',
+                            style: TextStyle(color: slapp_color.black_text)),
+                        TextSpan(
+                            text: 'START UPDATE ',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: slapp_color.primary)),
@@ -403,29 +384,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
               Divider(
                 color: slapp_color.fifthiary,
               ),
-              Container(
-                margin:
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-                child: RichText(
-                    textAlign: TextAlign.start,
-                    text: TextSpan(
-                      style: TextStyle(color: slapp_color.secondary),
-                      children: const <TextSpan>[
-                        TextSpan(
-                            text: '1. Connect your phone to ',
-                            style: TextStyle(color: slapp_color.black_text)),
-                        TextSpan(
-                            text: 'STABLE INTERNET CONNECTION ',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: slapp_color.primary)),
-                        TextSpan(
-                            text: 'and click download bellow: ',
-                            style: TextStyle(color: slapp_color.black_text)),
-                      ],
-                    )),
-              ),
-              Container(
+             Container(
                 margin:
                     const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
                 child: ElevatedButton(
@@ -436,12 +395,10 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       )),
                       backgroundColor: MaterialStateProperty.resolveWith<Color>(
                         (Set<MaterialState> states) {
-                          return _filePath.length > 0
+                          return is_verify
                               ? slapp_color.sixtiary
-                              : (is_download
-                                  ? slapp_color.sixtiary
-                                  : slapp_color
-                                      .primary); // Defer to the widget's default.
+                              :  slapp_color
+                                      .primary; // Defer to the widget's default.
                         },
                       ),
                       elevation: MaterialStateProperty.resolveWith<double>(
@@ -455,33 +412,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     ),
                     onPressed: () async {
-                      if (_filePath.length > 0) {
-                        ScaffoldMessenger.maybeOf(context)
-                            ?.showSnackBar(SnackBar(
-                          backgroundColor: slapp_color.primary,
-                          content: Text(
-                            "Download Has Been Completed, Please Connect to SAILOGGER-HOTSPOT and Install",
-                            style: TextStyle(color: slapp_color.white),
-                          ),
-                          showCloseIcon: true,
-                          closeIconColor: slapp_color.white,
-                        ));
-                      } else {
-                        if (is_download) {
-                          ScaffoldMessenger.maybeOf(context)
-                              ?.showSnackBar(SnackBar(
-                            backgroundColor: slapp_color.error,
-                            content: Text(
-                              "Download is ON-PROGGRESS",
-                              style: TextStyle(color: slapp_color.white),
-                            ),
-                            showCloseIcon: true,
-                            closeIconColor: slapp_color.white,
-                          ));
-                        } else {
-                          downloadFile(down_link, down_filename);
-                        }
-                      }
+                        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (context) => SSHFileTransferScreen()));
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(10),
@@ -505,7 +437,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             width: 10.0,
                           ),
                           Text(
-                            "Download Update".toUpperCase(),
+                            "Start Update".toUpperCase(),
                             style: const TextStyle(
                                 color: slapp_color.white,
                                 fontSize: 16,
@@ -515,135 +447,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     )),
               ),
-              Container(
-                margin:
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-                child: RichText(
-                    textAlign: TextAlign.start,
-                    text: TextSpan(
-                      style: TextStyle(color: slapp_color.secondary),
-                      children: const <TextSpan>[
-                        TextSpan(
-                            text: '2. Connect your phone to ',
-                            style: TextStyle(color: slapp_color.black_text)),
-                        TextSpan(
-                            text: 'SAILOGGER-HOTSPOT ',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: slapp_color.primary)),
-                        TextSpan(
-                            text: 'and click install bellow: ',
-                            style: TextStyle(color: slapp_color.black_text)),
-                      ],
-                    )),
-              ),
-              Container(
-                margin:
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-                child: ElevatedButton(
-                    style: ButtonStyle(
-                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
-                          const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.zero,
-                      )),
-                      backgroundColor: MaterialStateProperty.resolveWith<Color>(
-                        (Set<MaterialState> states) {
-                          return _filePath.length > 0
-                              ? (is_install
-                                  ? slapp_color.sixtiary
-                                  : slapp_color.primary)
-                              : slapp_color
-                                  .sixtiary; // Defer to the widget's default.
-                        },
-                      ),
-                      elevation: MaterialStateProperty.resolveWith<double>(
-                        // As you said you dont need elevation. I'm returning 0 in both case
-                        (Set<MaterialState> states) {
-                          if (states.contains(MaterialState.disabled)) {
-                            return 0;
-                          }
-                          return 0; // Defer to the widget's default.
-                        },
-                      ),
-                    ),
-                    onPressed: () async {
-                      if (_filePath.length > 0) {
-                        // Compare the current SSID with the desired one
-                        if (is_install) {
-                          ScaffoldMessenger.maybeOf(context)
-                              ?.showSnackBar(SnackBar(
-                            backgroundColor: slapp_color.error,
-                            content: Text(
-                              "Update is ON-PROGGRESS, Please Wait.",
-                              style: TextStyle(color: slapp_color.white),
-                            ),
-                            showCloseIcon: true,
-                            closeIconColor: slapp_color.white,
-                          ));
-                        } else {
-                          if (ssid.toString().contains('SAILOGGER') ||
-                              ssid.toString().contains('SAILINK')) {
-                            setState(() {});
-                            await Future.delayed(Duration(seconds: 3));
-                            uploadFileToSSHServer();
-                          } else {
-                            ScaffoldMessenger.maybeOf(context)
-                                ?.showSnackBar(SnackBar(
-                              backgroundColor: slapp_color.error,
-                              content: Text(
-                                "Please Connect to SAILOGGER-HOTSPOT",
-                                style: TextStyle(color: slapp_color.white),
-                              ),
-                              showCloseIcon: true,
-                              closeIconColor: slapp_color.white,
-                            ));
-                          }
-                        }
-                      } else {
-                        ScaffoldMessenger.maybeOf(context)
-                            ?.showSnackBar(SnackBar(
-                          backgroundColor: slapp_color.error,
-                          content: Text(
-                            "Please Download Update First",
-                            style: TextStyle(color: slapp_color.white),
-                          ),
-                          showCloseIcon: true,
-                          closeIconColor: slapp_color.white,
-                        ));
-                      }
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          is_install
-                              ? SizedBox(
-                                  child: Center(
-                                      child: CircularProgressIndicator(
-                                    color: slapp_color.white,
-                                  )),
-                                  height: 20.0,
-                                  width: 20.0,
-                                )
-                              : Icon(
-                                  Icons.install_desktop,
-                                  color: slapp_color.white,
-                                ),
-                          const SizedBox(
-                            width: 10.0,
-                          ),
-                          Text(
-                            "Install Update".toUpperCase(),
-                            style: const TextStyle(
-                                color: slapp_color.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    )),
-              ),
+           
             ],
           ),
         ),

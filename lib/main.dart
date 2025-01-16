@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sailogger719/constant/colors.dart';
+import 'package:sailogger719/screens/home_screen.dart';
 import 'package:sailogger719/screens/ssh_update.dart';
 import 'package:sailogger719/theme/theme_data.dart';
 
@@ -30,7 +31,7 @@ class MyApp extends StatelessWidget {
                 width: 210.0,
               ),
             ),
-            body: SSHFileTransferScreen(),
+            body: HomeScreen(),
           )),
     );
   }
