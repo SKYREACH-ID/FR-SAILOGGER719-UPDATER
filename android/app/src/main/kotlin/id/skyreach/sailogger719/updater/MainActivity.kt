@@ -1,4 +1,4 @@
-package com.example.sailogger719
+package id.skyreach.sailogger719.updater
 
 import io.flutter.embedding.android.FlutterActivity
 
