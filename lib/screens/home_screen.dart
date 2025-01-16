@@ -345,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-      Image.asset(
+              Image.asset(
                 'assets/images/icon_sl.png',
                 fit: BoxFit.fill,
                 height: 100.0,
@@ -358,20 +358,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     text: TextSpan(
                       style: TextStyle(color: slapp_color.secondary),
                       children: const <TextSpan>[
-                        
                         TextSpan(
-                            text:
-                                'Welcome to ',
+                            text: 'Welcome to ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
-                            text:
-                                'SAILOGGER 7.19 - UPDATER, ',
+                            text: 'SAILOGGER 7.19 - UPDATER, ',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: slapp_color.primary)),
                         TextSpan(
-                            text:
-                                'Please click button bellow to ',
+                            text: 'Please click button bellow to ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
                             text: 'START UPDATE ',
@@ -384,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Divider(
                 color: slapp_color.fifthiary,
               ),
-             Container(
+              Container(
                 margin:
                     const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
                 child: ElevatedButton(
@@ -397,8 +393,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         (Set<MaterialState> states) {
                           return is_verify
                               ? slapp_color.sixtiary
-                              :  slapp_color
-                                      .primary; // Defer to the widget's default.
+                              : slapp_color
+                                  .primary; // Defer to the widget's default.
                         },
                       ),
                       elevation: MaterialStateProperty.resolveWith<double>(
@@ -412,8 +408,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     onPressed: () async {
-                        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (context) => SSHFileTransferScreen()));
+                      Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => SSHFileTransferScreen()));
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(10),
@@ -447,7 +445,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )),
               ),
-           
             ],
           ),
         ),

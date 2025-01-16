@@ -387,7 +387,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                     text: TextSpan(
                       style: TextStyle(color: slapp_color.secondary),
                       children: const <TextSpan>[
-         
                         TextSpan(
                             text:
                                 'Please follow 2 steps bellow to update your ',
