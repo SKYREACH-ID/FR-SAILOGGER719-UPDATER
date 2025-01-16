@@ -389,20 +389,20 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       children: const <TextSpan>[
                         TextSpan(
                             text:
-                                'To carry out regular stable updates via Bluetooth, ',
+                                'Welcome to ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
                             text:
-                                'you must update to the stable version of Sailogger ',
+                                'SAILOGGER 7.19 - UPDATER, ',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: slapp_color.primary)),
                         TextSpan(
                             text:
-                                'If your Sailogger version is below 7.19 then , ',
+                                'follow 2 steps bellow to update your ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
-                            text: 'do update step bellow ',
+                            text: 'SAILOGGER-SOFTWARE ',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: slapp_color.primary)),
@@ -507,7 +507,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   width: 20.0,
                                 )
                               : Icon(
-                                  Icons.update,
+                                  Icons.download,
                                   color: slapp_color.white,
                                 ),
                           const SizedBox(
@@ -636,7 +636,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   width: 20.0,
                                 )
                               : Icon(
-                                  Icons.update,
+                                  Icons.install_desktop,
                                   color: slapp_color.white,
                                 ),
                           const SizedBox(
