@@ -21,15 +21,17 @@ class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
 
   Future<void> readFileViaSSH() async {
     try {
-      // Establish SSH connection
-      final sshClient = SSHClient(
+      final client = SSHClient(
         await SSHSocket.connect(host, port),
         username: username,
         onPasswordRequest: () => password,
+        keepAliveInterval: Duration(seconds: 30),
+        printDebug: (p0) {
+          print(p0);
+        },
       );
-
       // Open the SFTP subsystem
-      final channel = await sshClient.execute('sftp');
+      final channel = await client.execute('sftp');
 
       // Create an SFTP client using the channel
       final sftpClient = SftpClient(channel as SSHChannel);
