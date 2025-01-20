@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:dartssh2/src/ssh_channel.dart';
 import 'package:flutter/material.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:dartssh2/dartssh2.dart';
+import 'package:sailogger719/screens/ssh_update.dart';
 
 class SSHCheckerScreen extends StatefulWidget {
   const SSHCheckerScreen({super.key});
@@ -19,47 +22,63 @@ class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
   String filePath = '/var/Python/ID-IoT.SKY';
   String iot_id = '';
 
-  Future<void> readFileViaSSH() async {
-    try {
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-        keepAliveInterval: Duration(seconds: 30),
-        printDebug: (p0) {
-          print(p0);
-        },
-      );
-      // Open the SFTP subsystem
-      final channel = await client.execute('sftp');
+Future<void> readFileViaSSH() async {
+  const host = '172.24.1.1';  // Replace with your SSH server address
+  const port = 22;  // Default SSH port
+  final String username = 'skyflix';
+  final String password = 'byskyreach';// Replace with your password
+  String filePath = '/var/Python/Configs/ID-IoT.SKY';  // Replace with the remote file path
 
-      // Create an SFTP client using the channel
-      final sftpClient = SftpClient(channel as SSHChannel);
+  try {
+    // Establish SSH connection
+    final sshClient = SSHClient(
+      await SSHSocket.connect(host, port),
+      username: username,
+      onPasswordRequest: () => password,  // Provide password for authentication
+    );
 
-      // Open and read the file
-      final file = await sftpClient.open(filePath, mode: SftpFileOpenMode.read);
-      final fileContent = await file.readBytes();
+    print('Connected to SSH server.');
 
-      // Print the file content
-      print(String.fromCharCodes(fileContent));
-      setState(() {
-        iot_id = String.fromCharCodes(fileContent);
-      });
+    // Open SFTP session
+    final sftp = await sshClient.sftp();
 
-      // Clean up resources
-      await file.close();
+    // Open the file for reading using SftpFileOpenMode.read
+    final file = await sftp.open(filePath, mode: SftpFileOpenMode.read);
 
-      sftpClient.close();
-      sshClient.close();
-    } catch (e) {
-      print('Error: $e');
-    }
+    // Read the entire file content as bytes
+    final fileContent = await file.readBytes();
+
+    print('File Content:');
+    print(String.fromCharCodes(fileContent));
+
+    // Close the file and SFTP session
+    await file.close();
+     sftp.close();
+
+    // Close the SSH connection
+    sshClient.close();
+
+    print('File read successfully.');
+
+     Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => SSHFileTransferScreen()));
+  } catch (e) {
+    print('Error: $e');
+  }
+}
+  readSSH(){
+      Future.delayed(Duration(seconds: 3), () {
+     readFileViaSSH();
+  });
+    
   }
 
   @override
   void initState() {
     // TODO: implement initState
-    readFileViaSSH();
+    readSSH();
     super.initState();
   }
 
@@ -91,7 +110,7 @@ class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
                           text: 'Checking',
                           style: TextStyle(color: slapp_color.black_text)),
                       TextSpan(
-                          text: ' SAILOGGER-IOT-ID: '+ iot_id,
+                          text: ' SAILOGGER-IOT-ID'+ iot_id,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: slapp_color.primary)),
