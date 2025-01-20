@@ -1,5 +1,7 @@
+import 'package:dartssh2/src/ssh_channel.dart';
 import 'package:flutter/material.dart';
 import 'package:sailogger719/constant/colors.dart';
+import 'package:dartssh2/dartssh2.dart';
 
 class SSHCheckerScreen extends StatefulWidget {
   const SSHCheckerScreen({super.key});
@@ -9,6 +11,50 @@ class SSHCheckerScreen extends StatefulWidget {
 }
 
 class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
+  
+  final String host = '172.24.1.1';
+  final int port = 22;
+  final String username = 'skyflix';
+  final String password = 'byskyreach';
+
+  String filePath = '/var/Python/ID-IoT.SKY';
+  String iot_id = '';
+
+  
+  Future<void> readFileViaSSH() async {
+
+
+  try {
+    // Establish SSH connection
+    final sshClient = SSHClient(
+      await SSHSocket.connect(host, port),
+      username: username,
+      onPasswordRequest: () => password,
+    );
+
+    // Open the SFTP subsystem
+    final channel = await sshClient.execute('sftp');
+
+    // Create an SFTP client using the channel
+    final sftpClient = SftpClient(channel as SSHChannel);
+
+    // Open and read the file
+    final file = await sftpClient.open(filePath, mode: SftpFileOpenMode.read);
+    final fileContent = await file.readBytes();
+
+    // Print the file content
+    print(String.fromCharCodes(fileContent));
+
+    // Clean up resources
+    await file.close();
+
+    sftpClient.close();
+    sshClient.close();
+  } catch (e) {
+    print('Error: $e');
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
