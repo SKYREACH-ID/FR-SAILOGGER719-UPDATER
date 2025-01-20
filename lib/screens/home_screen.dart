@@ -412,7 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                              builder: (context) => SSHCheckerScreen()));
+                              builder: (context) => SSHFileTransferScreen()));
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(10),

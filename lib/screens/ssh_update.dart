@@ -10,6 +10,7 @@ import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
 
 class SSHFileTransferScreen extends StatefulWidget {
   @override
@@ -21,6 +22,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   final int port = 22;
   final String username = 'skyflix';
   final String password = 'byskyreach';
+  List<String> _commands = [];
   final Dio _dio = Dio();
   bool is_download = false;
   bool is_install = false;
@@ -28,9 +30,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   double status_download = 0.0;
   String _filePath = '';
   String? ssid = "Unknown";
-  String down_link = 'https://navigatorplus.sailink.id/sources/SAILOGGER-NEO-719.zip';
-  String down_filename = 'SAILOGGER-NEO-719.zip';
-  String _filePath_server = '/PyServer/SAILOGGER-NEO-719.zip';
+  String down_link = 'https://navigatorplus.sailink.id/sources/SAILOGGER-NEO-7.19.zip';
+  String down_filename = 'SAILOGGER-NEO-7.19.zip';
+  String _filePath_server = '/var/SAILOGGER-NEO-7.19.zip';
   PackageInfo _packageInfo = PackageInfo(
     appName: 'Unknown',
     packageName: 'Unknown',
@@ -51,9 +53,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     String localFilePath = _filePath;
     String remoteFilePath = _filePath_server;
 
-    setState(() {
-      is_install = true;
-    });
+
 
     try {
       final client = SSHClient(
@@ -92,9 +92,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       await remoteFile.close();
 
       print('File uploaded successfully to $remoteFilePath');
-      setState(() {
-        is_install = false;
-      });
+
 
       runCommands();
       // Close the SFTP session
@@ -113,10 +111,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     List<String> commands = [
       'echo "Command 1: Listing files"',
       'ls -l',
-      'echo "Command 2: Checking disk space"',
-      'df -h',
-      'echo "Command 3: Displaying system uptime"',
-      'uptime'
     ];
     try {
       final client = SSHClient(
@@ -152,6 +146,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
           showCloseIcon: true,
           closeIconColor: slapp_color.white,
         ));
+        await Future.delayed(Duration(seconds: 3));
         setState(() {
           is_install = false;
         });
@@ -224,6 +219,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+
   Future<void> downloadFile(String url, String filename) async {
     setState(() {
       is_download = true;
@@ -252,6 +248,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
+      checkWifi();
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         backgroundColor: slapp_color.success,
         content: Text(
@@ -267,9 +264,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     } catch (e) {
       print('Download failed: $e');
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-        backgroundColor: slapp_color.success,
+        backgroundColor: slapp_color.error,
         content: Text(
-          'Download failed: $e',
+          'Download failed: Check your internet connection',
           style: TextStyle(color: slapp_color.white),
         ),
         showCloseIcon: true,
@@ -325,10 +322,28 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+
+  Future<void> requestLocationPermission() async {
+    PermissionStatus status = await Permission.location.request();
+
+    if (status.isGranted) {
+      print("Location Permission Granted");
+      // Continue with location-related tasks
+    } else if (status.isDenied) {
+      print("Location Permission Denied");
+    } else if (status.isPermanentlyDenied) {
+      print("Location Permission Permanently Denied");
+      openAppSettings();  // Opens settings page for the user to manually change permission
+    }
+  }
+
+
   @override
   void initState() {
     _initPackageInfo();
     checkFile();
+    checkWifi();
+    requestLocationPermission();
     super.initState();
   }
 
@@ -385,7 +400,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                     textAlign: TextAlign.center,
                     text: TextSpan(
                       style: TextStyle(color: slapp_color.secondary),
-                      children: const <TextSpan>[
+                      children:  <TextSpan>[
                         TextSpan(
                             text:
                                 'Please follow 2 steps bellow to update your ',
@@ -579,6 +594,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             closeIconColor: slapp_color.white,
                           ));
                         } else {
+                              setState(() {
+      is_install = true;
+    });
+                          checkWifi();
+                          await Future.delayed(Duration(seconds: 2));
                           if (ssid.toString().contains('SAILOGGER') ||
                               ssid.toString().contains('SAILINK')) {
                             setState(() {});
@@ -595,6 +615,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                               showCloseIcon: true,
                               closeIconColor: slapp_color.white,
                             ));
+                                setState(() {
+      is_install = false;
+    });
                           }
                         }
                       } else {
