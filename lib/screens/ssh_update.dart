@@ -29,9 +29,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String _filePath = '';
   String? ssid = "Unknown";
   String down_link =
-      'https://navigatorplus.sailink.id/sources/SL-Engine-3.17.3A.zip';
-  String down_filename = 'SL-Engine-3.17.3A.zip';
-  String _filePath_server = '/PyServer/SL-Engine-3.17.3A.zip';
+      'https://navigatorplus.sailink.id/sources/SAILOGGER-NEO-719.zip';
+  String down_filename = 'SAILOGGER-NEO-719.zip';
+  String _filePath_server = '/PyServer/SAILOGGER-NEO-719.zip';
   PackageInfo _packageInfo = PackageInfo(
     appName: 'Unknown',
     packageName: 'Unknown',
