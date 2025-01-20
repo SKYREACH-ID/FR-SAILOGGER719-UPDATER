@@ -11,7 +11,6 @@ class SSHCheckerScreen extends StatefulWidget {
 }
 
 class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
-  
   final String host = '172.24.1.1';
   final int port = 22;
   final String username = 'skyflix';
@@ -20,40 +19,47 @@ class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
   String filePath = '/var/Python/ID-IoT.SKY';
   String iot_id = '';
 
-  
   Future<void> readFileViaSSH() async {
+    try {
+      // Establish SSH connection
+      final sshClient = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
 
+      // Open the SFTP subsystem
+      final channel = await sshClient.execute('sftp');
 
-  try {
-    // Establish SSH connection
-    final sshClient = SSHClient(
-      await SSHSocket.connect(host, port),
-      username: username,
-      onPasswordRequest: () => password,
-    );
+      // Create an SFTP client using the channel
+      final sftpClient = SftpClient(channel as SSHChannel);
 
-    // Open the SFTP subsystem
-    final channel = await sshClient.execute('sftp');
+      // Open and read the file
+      final file = await sftpClient.open(filePath, mode: SftpFileOpenMode.read);
+      final fileContent = await file.readBytes();
 
-    // Create an SFTP client using the channel
-    final sftpClient = SftpClient(channel as SSHChannel);
+      // Print the file content
+      print(String.fromCharCodes(fileContent));
+      setState(() {
+        iot_id = String.fromCharCodes(fileContent);
+      });
 
-    // Open and read the file
-    final file = await sftpClient.open(filePath, mode: SftpFileOpenMode.read);
-    final fileContent = await file.readBytes();
+      // Clean up resources
+      await file.close();
 
-    // Print the file content
-    print(String.fromCharCodes(fileContent));
-
-    // Clean up resources
-    await file.close();
-
-    sftpClient.close();
-    sshClient.close();
-  } catch (e) {
-    print('Error: $e');
+      sftpClient.close();
+      sshClient.close();
+    } catch (e) {
+      print('Error: $e');
+    }
   }
-}
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    readFileViaSSH();
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,12 +84,12 @@ class _SSHCheckerScreenState extends State<SSHCheckerScreen> {
                   textAlign: TextAlign.center,
                   text: TextSpan(
                     style: TextStyle(color: slapp_color.secondary),
-                    children: const <TextSpan>[
+                    children:  <TextSpan>[
                       TextSpan(
                           text: 'Checking',
                           style: TextStyle(color: slapp_color.black_text)),
                       TextSpan(
-                          text: ' SAILOGGER-IOT-ID ',
+                          text: ' SAILOGGER-IOT-ID: '+ iot_id,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: slapp_color.primary)),
