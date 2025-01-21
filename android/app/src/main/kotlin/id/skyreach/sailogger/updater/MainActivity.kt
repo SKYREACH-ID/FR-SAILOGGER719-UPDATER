@@ -1,4 +1,4 @@
-package id.skyreach.sailogger719.updater
+package id.skyreach.sailogger.updater
 
 import io.flutter.embedding.android.FlutterActivity
 
