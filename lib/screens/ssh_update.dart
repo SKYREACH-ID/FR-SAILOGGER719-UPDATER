@@ -12,6 +12,139 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 
+class SSHFileUploader {
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+
+  SSHFileUploader({
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+  });
+
+  Future<void> uploadFile({
+    required File file,
+    required String remotePath,
+    required ValueNotifier<String> progressNotifier,
+    required VoidCallback onUploadComplete,
+  }) async {
+    try {
+      // Establish SSH connection
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      // Open SFTP session
+      final sftp = await client.sftp();
+
+      // Get file size
+      final fileSize = await file.length();
+
+      // Create remote file
+      final remoteFile = await sftp.open(
+        remotePath,
+        mode: SftpFileOpenMode.create |
+            SftpFileOpenMode.write |
+            SftpFileOpenMode.truncate,
+      );
+
+      // Track progress
+      int uploadedBytes = 0;
+      final chunkSize = 8192; // 8 KB chunks
+
+      // Read and upload file in chunks
+      final fileStream = file.openRead();
+      await for (final chunk in fileStream) {
+        // Ensure chunk is a Uint8List and not a List<int>
+        final uint8Chunk = Uint8List.fromList(chunk);
+
+        // Upload the chunk as Stream<Uint8List>
+        final chunkStream = Stream.value(uint8Chunk);
+
+        await remoteFile
+            .write(chunkStream); // Upload chunk as Stream<Uint8List>
+        uploadedBytes += chunk.length;
+
+        // Update progress
+        final percentage = (uploadedBytes / fileSize * 100).toStringAsFixed(1);
+        progressNotifier.value = "Uploading... $percentage%";
+      }
+
+      // Finalize upload
+      await remoteFile.close();
+      progressNotifier.value = "Upload complete (100%).";
+
+      // Close SFTP session
+      sftp.close();
+      client.close();
+
+      // Call the callback function after upload completion
+      onUploadComplete(); // This is where the callback gets called
+    } catch (e) {
+      progressNotifier.value = "Error: $e";
+    }
+  }
+}
+
+class SSHCommandExecutor {
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+
+  SSHCommandExecutor({
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+  });
+
+  Future<void> runCommandsWithProgress(
+      {required List<String> commands,
+      required ValueNotifier<String> progressNotifier,
+      required Function() onCommandCompletion}) async {
+    try {
+      // Connect to the remote server
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      final totalCommands = commands.length;
+      int completedCommands = 0;
+
+      for (final command in commands) {
+        // Update progress before running the command
+        progressNotifier.value =
+            "Running: $command (${(completedCommands / totalCommands * 100).toStringAsFixed(1)}%)";
+
+        // Execute the command
+        final result = await client.execute(command);
+
+        // Update progress after completion
+        completedCommands++;
+        progressNotifier.value =
+            "Completed: $command\nOutput: ${result.stdout}\nProgress: ${(completedCommands / totalCommands * 100).toStringAsFixed(1)}%";
+      }
+
+      // Final update
+      progressNotifier.value = "All commands executed successfully (100%).";
+
+      onCommandCompletion();
+      // Close the SSH connection
+      client.close();
+    } catch (e) {
+      progressNotifier.value = "Error: $e";
+    }
+  }
+}
+
 class SSHFileTransferScreen extends StatefulWidget {
   @override
   _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
@@ -45,6 +178,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     installerStore: 'Unknown',
   );
   String _versionPath = '/var/Python/Version';
+  final ValueNotifier<String> _progressNotifier = ValueNotifier<String>("");
 
   Future<void> _initPackageInfo() async {
     final info = await PackageInfo.fromPlatform();
@@ -89,154 +223,179 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-  Future<void> uploadFileToSSHServer() async {
-    String localFilePath = _filePath;
-    String remoteFilePath = _filePath_server;
+  void _uploadFile() async {
+    final uploader = SSHFileUploader(
+      host: host,
+      port: port,
+      username: username,
+      password: password,
+    );
 
-    try {
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-        keepAliveInterval: Duration(seconds: 30),
-        printDebug: (p0) {
-          print(p0);
-        },
-      );
+    final file = File(_filePath);
+    final remotePath = _filePath_server;
 
-      // Start an SFTP session
-      print('Starting SFTP session...');
-      final sftp = await client.sftp();
-
-      // Read the local file
-      final file = File(localFilePath);
-      if (!await file.exists()) {
-        print('Local file does not exist at $localFilePath');
-        return;
-      }
-
-      final fileContents = await file.readAsBytes();
-
-      // Convert file contents to a Stream<Uint8List>
-      final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
-
-      // Upload the file to the server
-      print('Uploading file to $remoteFilePath...');
-      final remoteFile = await sftp.open(
-        remoteFilePath,
-        mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
-      );
-      await remoteFile.write(fileContentsStream);
-      await remoteFile.close();
-
-      print('File uploaded successfully to $remoteFilePath');
-
-      runCommands();
-      // Close the SFTP session
-      sftp.close();
-    } catch (e) {
-      setState(() {
-        is_install = false;
-      });
-      print('An error occurred: $e');
-    } finally {
-      print('Closing connection...');
-    }
+    await uploader.uploadFile(
+        file: file,
+        remotePath: remotePath,
+        progressNotifier: _progressNotifier,
+        onUploadComplete: onUploadCompletion);
   }
 
-  Future<void> runCommands() async {
-    try {
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-      );
+  void _runCommands() async {
+    final executor = SSHCommandExecutor(
+      host: host,
+      port: port,
+      username: username,
+      password: password,
+    );
 
-      try {
-        for (var command in _commands) {
-          print('Running command: $command');
-          var result = await client.run(command);
-          print('Result: $result');
-        }
-      } catch (e) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            'Error executing commands: $e',
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
-      } finally {
-        client.close();
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          backgroundColor: slapp_color.success,
-          content: Text(
-            "Install Completed",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
-        await Future.delayed(Duration(seconds: 3));
-        setState(() {
-          is_install = false;
-          install_completed = true;
-        });
-        removeFile(_filePath);
-      }
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-        backgroundColor: slapp_color.error,
-        content: Text(
-          "Cannot Conenct SSH: $e",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
-    }
+    await executor.runCommandsWithProgress(
+        commands: _commands,
+        progressNotifier: _progressNotifier,
+        onCommandCompletion: onCommandCompletion);
   }
 
-  Future<void> sendCommandToServer() async {
-    try {
-      // Create an SSH client
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-      );
-
-      // Execute a command
-      final session = await client.execute('sudo reboot');
-
-      // Collect the output
-      final stdout = await session.stdout
-          .map((event) => event as List<int>)
-          .transform(utf8.decoder)
-          .join();
-
-      final stderr = await session.stderr
-          .map((event) => event as List<int>)
-          .transform(utf8.decoder)
-          .join();
-
-      print('Output:');
-      print(stdout);
-
-      if (stderr.isNotEmpty) {
-        print('Error:');
-        print(stderr);
-      }
-
-      // Close the session and client
-      session.close();
-      client.close();
-    } catch (e) {
-      print('An error occurred: $e');
-    }
+  void onCommandCompletion() async {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      backgroundColor: slapp_color.success,
+      content: Text(
+        "Install Completed",
+        style: TextStyle(color: slapp_color.white),
+      ),
+      showCloseIcon: true,
+      closeIconColor: slapp_color.white,
+    ));
+    await Future.delayed(Duration(seconds: 3));
+    setState(() {
+      is_install = false;
+      install_completed = true;
+    });
+    removeFile(_filePath);
   }
+
+  void onUploadCompletion() async {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      backgroundColor: slapp_color.success,
+      content: Text(
+        "Upload Successfully",
+        style: TextStyle(color: slapp_color.white),
+      ),
+      showCloseIcon: true,
+      closeIconColor: slapp_color.white,
+    ));
+    await Future.delayed(Duration(seconds: 3));
+    _runCommands();
+  }
+
+  // Future<void> runCommands() async {
+  //   try {
+  //     final client = SSHClient(
+  //       await SSHSocket.connect(host, port),
+  //       username: username,
+  //       onPasswordRequest: () => password,
+  //     );
+
+  //     try {
+  //       for (var command in _commands) {
+  //         print('Running command: $command');
+  //         var result = await client.run(command);
+  //         print('Result: $result');
+  //       }
+  //     } catch (e) {
+  //       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+  //         backgroundColor: slapp_color.error,
+  //         content: Text(
+  //           'Error executing commands: $e',
+  //           style: TextStyle(color: slapp_color.white),
+  //         ),
+  //         showCloseIcon: true,
+  //         closeIconColor: slapp_color.white,
+  //       ));
+  //     } finally {
+  //       client.close();
+  //       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+  //         backgroundColor: slapp_color.success,
+  //         content: Text(
+  //           "Install Completed",
+  //           style: TextStyle(color: slapp_color.white),
+  //         ),
+  //         showCloseIcon: true,
+  //         closeIconColor: slapp_color.white,
+  //       ));
+  //       await Future.delayed(Duration(seconds: 3));
+  //       setState(() {
+  //         is_install = false;
+  //         install_completed = true;
+  //       });
+  //       removeFile(_filePath);
+  //     }
+  //   } catch (e) {
+  //     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+  //       backgroundColor: slapp_color.error,
+  //       content: Text(
+  //         "Cannot Conenct SSH: $e",
+  //         style: TextStyle(color: slapp_color.white),
+  //       ),
+  //       showCloseIcon: true,
+  //       closeIconColor: slapp_color.white,
+  //     ));
+  //   }
+  // }
+
+  // Future<void> uploadFileToSSHServer() async {
+  //   String localFilePath = _filePath;
+  //   String remoteFilePath = _filePath_server;
+
+  //   try {
+  //     final client = SSHClient(
+  //       await SSHSocket.connect(host, port),
+  //       username: username,
+  //       onPasswordRequest: () => password,
+  //       keepAliveInterval: Duration(seconds: 30),
+  //       printDebug: (p0) {
+  //         print(p0);
+  //       },
+  //     );
+
+  //     // Start an SFTP session
+  //     print('Starting SFTP session...');
+  //     final sftp = await client.sftp();
+
+  //     // Read the local file
+  //     final file = File(localFilePath);
+  //     if (!await file.exists()) {
+  //       print('Local file does not exist at $localFilePath');
+  //       return;
+  //     }
+
+  //     final fileContents = await file.readAsBytes();
+
+  //     // Convert file contents to a Stream<Uint8List>
+  //     final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
+
+  //     // Upload the file to the server
+  //     print('Uploading file to $remoteFilePath...');
+  //     final remoteFile = await sftp.open(
+  //       remoteFilePath,
+  //       mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
+  //     );
+  //     await remoteFile.write(fileContentsStream);
+  //     await remoteFile.close();
+
+  //     print('File uploaded successfully to $remoteFilePath');
+
+  //     _runCommands();
+  //     // Close the SFTP session
+  //     sftp.close();
+  //   } catch (e) {
+  //     setState(() {
+  //       is_install = false;
+  //     });
+  //     print('An error occurred: $e');
+  //   } finally {
+  //     print('Closing connection...');
+  //   }
+  // }
 
   Future<void> compareRemoteFileContent() async {
     try {
@@ -249,7 +408,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Open SFTP session
       final sftp = await client.sftp();
-
 
       // Read file content
       final file = await sftp.open(_versionPath, mode: SftpFileOpenMode.read);
@@ -277,14 +435,14 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         });
       } else {
         print('File content not match expected content!');
-        uploadFileToSSHServer();
+        _uploadFile();
       }
 
       // Close the connection
       client.close();
     } catch (e) {
       print('Error: $e');
-      uploadFileToSSHServer();
+      _uploadFile();
     }
   }
 
@@ -305,12 +463,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<void> removeFile(filepath) async {
-    // Define the file path (example: path in the app's document directory or external storage)
-    final file = File(filepath); // Example file path
-
+    final file = File(filepath);
     try {
       if (await file.exists()) {
-        // If the file exists, delete it
         await file.delete();
         print('File deleted successfully');
       } else {
@@ -327,13 +482,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       error_download = false;
     });
     try {
-      // Get the directory to save the file
       final directory = await getApplicationDocumentsDirectory();
       final filePath = '${directory.path}/$filename';
 
       print('Downloading to: $filePath');
 
-      // Start the download with progress tracking
       await _dio.download(
         url,
         filePath,
@@ -403,7 +556,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<void> checkWifi() async {
-    // Request permission to access location
     if (await Permission.location.request().isGranted) {
       try {
         final info = NetworkInfo();
@@ -429,12 +581,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
     if (status.isGranted) {
       print("Location Permission Granted");
-      // Continue with location-related tasks
     } else if (status.isDenied) {
       print("Location Permission Denied");
     } else if (status.isPermanentlyDenied) {
       print("Location Permission Permanently Denied");
-      openAppSettings(); // Opens settings page for the user to manually change permission
+      openAppSettings();
     }
   }
 
@@ -458,10 +609,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Text(
-              //   _commands.toString(),
-              //   style: TextStyle(color: slapp_color.black_text),
-              // ),
               is_download
                   ? CircularPercentIndicator(
                       radius: 100.0,
@@ -498,15 +645,17 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                           color: slapp_color.success,
                         )
                       : is_install
-                          ? (install_satisfied ? Icon(
+                          ? (install_satisfied
+                              ? Icon(
                                   Icons.close,
                                   size: 120,
                                   color: slapp_color.error,
-                                ) :Icon(
-                              Icons.install_desktop,
-                              size: 120,
-                              color: slapp_color.tertiary,
-                            ))
+                                )
+                              : Icon(
+                                  Icons.install_desktop,
+                                  size: 120,
+                                  color: slapp_color.primary,
+                                ))
                           : (install_satisfied
                               ? Icon(
                                   Icons.close,
@@ -539,26 +688,29 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                 ],
                               )),
                         )
-                      : Padding(
-                          padding: EdgeInsets.all(20.0),
-                          child: RichText(
-                              textAlign: TextAlign.center,
-                              text: TextSpan(
-                                style: TextStyle(color: slapp_color.secondary),
-                                children: <TextSpan>[
-                                  TextSpan(
-                                      text:
-                                          'Please follow 2 steps bellow to update your ',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text)),
-                                  TextSpan(
-                                      text: 'SAILOGGER-SOFTWARE ',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: slapp_color.primary)),
-                                ],
-                              )),
-                        ))
+                      : (!is_install && !is_download
+                          ? Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: RichText(
+                                  textAlign: TextAlign.center,
+                                  text: TextSpan(
+                                    style:
+                                        TextStyle(color: slapp_color.secondary),
+                                    children: <TextSpan>[
+                                      TextSpan(
+                                          text:
+                                              'Please follow 2 steps bellow to update your ',
+                                          style: TextStyle(
+                                              color: slapp_color.black_text)),
+                                      TextSpan(
+                                          text: 'SAILOGGER-SOFTWARE ',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: slapp_color.primary)),
+                                    ],
+                                  )),
+                            )
+                          : Container()))
                   : Padding(
                       padding: EdgeInsets.all(20.0),
                       child: RichText(
@@ -574,6 +726,32 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             ],
                           )),
                     ),
+              is_install
+                  ? Text('STATUS:',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: slapp_color.primary))
+                  : Container(),
+              is_install
+                  ? Padding(
+                      padding: EdgeInsets.only(bottom: 60.0),
+                      child: ValueListenableBuilder<String>(
+                        valueListenable: _progressNotifier,
+                        builder: (context, value, child) {
+                          return Center(
+                            child: Text(
+                              value,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 20,
+                                  color: slapp_color.black_text,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  : Container(),
               Divider(
                 color: slapp_color.fifthiary,
               ),
