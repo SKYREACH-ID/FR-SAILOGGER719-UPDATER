@@ -29,10 +29,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool install_completed = false;
   double status_download = 0.0;
   bool install_satisfied = false;
+  List<String> _commands = [];
   String _filePath = '';
   String? ssid = "Unknown";
-  String down_link =
-      'https://navigatorplus.sailink.id/sources/SAILOGGER-NEO-7.19.zip';
+  String _url = "https://navigatorplus.sailink.id/";
+  String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
   String down_filename = 'SAILOGGER-NEO-7.19.zip';
   String _filePath_server = '/var/SAILOGGER-NEO-7.19.zip';
   PackageInfo _packageInfo = PackageInfo(
@@ -50,6 +51,39 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     setState(() {
       _packageInfo = info;
     });
+  }
+
+  void fetchCommands() async {
+    try {
+      // Make the GET request
+      final response =
+          await http.get(Uri.parse(_url + 'api/sailogger/device/version'));
+
+      // Check if the request was successful
+      if (response.statusCode == 200) {
+        // Decode the JSON data
+        final List<dynamic> jsonData = jsonDecode(response.body);
+
+        for (var item in jsonData) {
+          if (item['sources'] != null &&
+              item['name'].toString().toUpperCase().contains('SAILOGGER-NEO')) {
+            for (var source in item['sources']) {
+              if (source['commands'] != null) {
+                setState(() {
+                  _commands.addAll(List<String>.from(source['commands']));
+                });
+              }
+            }
+          }
+        }
+
+        print('Install Commands: $_commands');
+      } else {
+        throw Exception('Failed to load data: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error: $e');
+    }
   }
 
   Future<void> uploadFileToSSHServer() async {
@@ -108,10 +142,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<void> runCommands() async {
-    List<String> commands = [
-      'echo "Command 1: Listing files"',
-      'ls -l',
-    ];
     try {
       final client = SSHClient(
         await SSHSocket.connect(host, port),
@@ -120,7 +150,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
 
       try {
-        for (var command in commands) {
+        for (var command in _commands) {
           print('Running command: $command');
           var result = await client.run(command);
           print('Result: $result');
@@ -289,6 +319,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     setState(() {
       is_download = true;
       error_download = false;
+      _commands.clear();
     });
     try {
       // Get the directory to save the file
@@ -314,6 +345,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
       checkWifi();
+      fetchCommands();
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         backgroundColor: slapp_color.success,
         content: Text(
@@ -420,6 +452,10 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              Text(
+                _commands.toString(),
+                style: TextStyle(color: slapp_color.black_text),
+              ),
               is_download
                   ? CircularPercentIndicator(
                       radius: 100.0,
@@ -430,7 +466,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       center: error_download
                           ? IconButton(
                               onPressed: () {
-                                downloadFile(down_link, down_filename);
+                                downloadFile(_url + down_link, down_filename);
                               },
                               icon: Icon(
                                 Icons.refresh,
@@ -621,7 +657,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       closeIconColor: slapp_color.white,
                                     ));
                                   } else {
-                                    downloadFile(down_link, down_filename);
+                                    downloadFile(
+                                        _url + down_link, down_filename);
+                                    //fetchCommands();
                                   }
                                 }
                               },
@@ -703,7 +741,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                 backgroundColor:
                                     MaterialStateProperty.resolveWith<Color>(
                                   (Set<MaterialState> states) {
-                                    return _filePath.length > 0
+                                    return (_filePath.length > 0) &&
+                                            (_commands.length > 0)
                                         ? (is_install || install_completed
                                             ? slapp_color.sixtiary
                                             : slapp_color.primary)
@@ -724,7 +763,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                 ),
                               ),
                               onPressed: () async {
-                                if (_filePath.length > 0) {
+                                if ((_filePath.length > 0) &&
+                                    (_commands.length > 0)) {
                                   // Compare the current SSID with the desired one
                                   if (is_install) {
                                     ScaffoldMessenger.maybeOf(context)
