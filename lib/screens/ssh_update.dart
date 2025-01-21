@@ -12,83 +12,6 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 
-class SSHFileUploader {
-  final String host;
-  final int port;
-  final String username;
-  final String password;
-
-  SSHFileUploader({
-    required this.host,
-    required this.port,
-    required this.username,
-    required this.password,
-  });
-
-  Future<void> uploadFile(
-      {required File file,
-      required String remotePath,
-      required ValueNotifier<String> progressNotifier,
-      required VoidCallback onUploadComplete,
-      required VoidCallback onUploadError}) async {
-    try {
-      // Establish SSH connection
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-      );
-
-      // Open SFTP session
-      final sftp = await client.sftp();
-
-      // Get file size
-      final fileSize = await file.length();
-
-      // Create remote file without truncating
-      final remoteFile = await sftp.open(
-        remotePath,
-        mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
-      );
-
-      // Track progress
-      int uploadedBytes = 0;
-
-      // Read and upload file in chunks
-      final fileStream = file.openRead();
-      await for (final chunk in fileStream) {
-        // Ensure chunk is a Uint8List and not a List<int>
-        final uint8Chunk = Uint8List.fromList(chunk);
-
-        // Upload the chunk as Stream<Uint8List>
-        final chunkStream = Stream.value(uint8Chunk);
-
-        await remoteFile
-            .write(chunkStream); // Upload chunk as Stream<Uint8List>
-        uploadedBytes += chunk.length;
-
-        // Update progress
-        final percentage = (uploadedBytes / fileSize * 100).toStringAsFixed(1);
-        progressNotifier.value = "Uploading... $percentage%";
-      }
-
-      // Finalize upload
-      await remoteFile.close();
-      progressNotifier.value = "Upload complete (100%).";
-
-      // Close SFTP session
-      sftp.close();
-      client.close();
-
-      // Call the callback function after upload completion
-      onUploadComplete(); // This is where the callback gets called
-    } catch (e) {
-      progressNotifier.value = "Error: $e";
-      onUploadError();
-    }
-  }
-}
-
 class SSHCommandExecutor {
   final String host;
   final int port;
@@ -224,25 +147,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-  void _uploadFile() async {
-    final uploader = SSHFileUploader(
-      host: host,
-      port: port,
-      username: username,
-      password: password,
-    );
-
-    final file = File(_filePath);
-    final remotePath = _filePath_server;
-
-    await uploader.uploadFile(
-        file: file,
-        remotePath: remotePath,
-        progressNotifier: _progressNotifier,
-        onUploadComplete: onUploadCompletion,
-        onUploadError: onUploadError);
-  }
-
   void _runCommands() async {
     final executor = SSHCommandExecutor(
       host: host,
@@ -357,60 +261,61 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   //   }
   // }
 
-  // Future<void> uploadFileToSSHServer() async {
-  //   String localFilePath = _filePath;
-  //   String remoteFilePath = _filePath_server;
+  Future<void> uploadFileToSSHServer() async {
+    String localFilePath = _filePath;
+    String remoteFilePath = _filePath_server;
+    _progressNotifier.value =
+        "Copying File to SAILOGGER-DEVICE Please Wait...(10-25 minutes)";
+    try {
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+        keepAliveInterval: Duration(seconds: 30),
+        printDebug: (p0) {
+          print(p0);
+        },
+      );
 
-  //   try {
-  //     final client = SSHClient(
-  //       await SSHSocket.connect(host, port),
-  //       username: username,
-  //       onPasswordRequest: () => password,
-  //       keepAliveInterval: Duration(seconds: 30),
-  //       printDebug: (p0) {
-  //         print(p0);
-  //       },
-  //     );
+      // Start an SFTP session
+      print('Starting SFTP session...');
+      final sftp = await client.sftp();
 
-  //     // Start an SFTP session
-  //     print('Starting SFTP session...');
-  //     final sftp = await client.sftp();
+      // Read the local file
+      final file = File(localFilePath);
+      if (!await file.exists()) {
+        print('Local file does not exist at $localFilePath');
+        return;
+      }
 
-  //     // Read the local file
-  //     final file = File(localFilePath);
-  //     if (!await file.exists()) {
-  //       print('Local file does not exist at $localFilePath');
-  //       return;
-  //     }
+      final fileContents = await file.readAsBytes();
 
-  //     final fileContents = await file.readAsBytes();
+      // Convert file contents to a Stream<Uint8List>
+      final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
 
-  //     // Convert file contents to a Stream<Uint8List>
-  //     final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
+      // Upload the file to the server
+      print('Uploading file to $remoteFilePath...');
+      final remoteFile = await sftp.open(
+        remoteFilePath,
+        mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
+      );
+      await remoteFile.write(fileContentsStream);
+      await remoteFile.close();
 
-  //     // Upload the file to the server
-  //     print('Uploading file to $remoteFilePath...');
-  //     final remoteFile = await sftp.open(
-  //       remoteFilePath,
-  //       mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
-  //     );
-  //     await remoteFile.write(fileContentsStream);
-  //     await remoteFile.close();
+      print('File uploaded successfully to $remoteFilePath');
 
-  //     print('File uploaded successfully to $remoteFilePath');
-
-  //     _runCommands();
-  //     // Close the SFTP session
-  //     sftp.close();
-  //   } catch (e) {
-  //     setState(() {
-  //       is_install = false;
-  //     });
-  //     print('An error occurred: $e');
-  //   } finally {
-  //     print('Closing connection...');
-  //   }
-  // }
+      _runCommands();
+      // Close the SFTP session
+      sftp.close();
+    } catch (e) {
+      setState(() {
+        is_install = false;
+      });
+      print('An error occurred: $e');
+    } finally {
+      print('Closing connection...');
+    }
+  }
 
   Future<void> compareRemoteFileContent() async {
     try {
@@ -450,14 +355,14 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         });
       } else {
         print('File content not match expected content!');
-        _uploadFile();
+        uploadFileToSSHServer();
       }
 
       // Close the connection
       client.close();
     } catch (e) {
       print('Error: $e');
-      _uploadFile();
+      uploadFileToSSHServer();
     }
   }
 
@@ -756,7 +661,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                   : Container(),
               is_install
                   ? Padding(
-                      padding: EdgeInsets.only(bottom: 60.0),
+                      padding: EdgeInsets.only(bottom: 60.0,left: 20,right: 20),
                       child: ValueListenableBuilder<String>(
                         valueListenable: _progressNotifier,
                         builder: (context, value, child) {
@@ -1126,7 +1031,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   width: 10.0,
                                 ),
                                 Text(
-                                  "Close Sailogger Updater".toUpperCase(),
+                                  "Close Sailogger-7.19 Updater".toUpperCase(),
                                   style: const TextStyle(
                                       color: slapp_color.white,
                                       fontSize: 16,
