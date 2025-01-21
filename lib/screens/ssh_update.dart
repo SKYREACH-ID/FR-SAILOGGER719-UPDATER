@@ -495,11 +495,15 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                           color: slapp_color.success,
                         )
                       : is_install
-                          ? Icon(
+                          ? (install_satisfied ? Icon(
+                                  Icons.close,
+                                  size: 120,
+                                  color: slapp_color.error,
+                                ) :Icon(
                               Icons.install_desktop,
                               size: 120,
                               color: slapp_color.tertiary,
-                            )
+                            ))
                           : (install_satisfied
                               ? Icon(
                                   Icons.close,
