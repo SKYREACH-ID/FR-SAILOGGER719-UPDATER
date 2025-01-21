@@ -455,10 +455,10 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                _commands.toString(),
-                style: TextStyle(color: slapp_color.black_text),
-              ),
+              // Text(
+              //   _commands.toString(),
+              //   style: TextStyle(color: slapp_color.black_text),
+              // ),
               is_download
                   ? CircularPercentIndicator(
                       radius: 100.0,
