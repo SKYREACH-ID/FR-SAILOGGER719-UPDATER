@@ -250,6 +250,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       // Open SFTP session
       final sftp = await client.sftp();
 
+
       // Read file content
       final file = await sftp.open(_versionPath, mode: SftpFileOpenMode.read);
       final content = await file.readBytes();
@@ -270,6 +271,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
           showCloseIcon: true,
           closeIconColor: slapp_color.white,
         ));
+        removeFile(_filePath);
         setState(() {
           install_satisfied = true;
         });
@@ -282,6 +284,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       client.close();
     } catch (e) {
       print('Error: $e');
+      uploadFileToSSHServer();
     }
   }
 
