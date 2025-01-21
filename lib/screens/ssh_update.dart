@@ -661,7 +661,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                   : Container(),
               is_install
                   ? Padding(
-                      padding: EdgeInsets.only(bottom: 60.0,left: 20,right: 20),
+                      padding:
+                          EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
                       child: ValueListenableBuilder<String>(
                         valueListenable: _progressNotifier,
                         builder: (context, value, child) {
