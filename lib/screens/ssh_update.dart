@@ -54,6 +54,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   void fetchCommands() async {
+    setState(() {
+      _commands.clear();
+    });
     try {
       // Make the GET request
       final response =
@@ -319,7 +322,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     setState(() {
       is_download = true;
       error_download = false;
-      _commands.clear();
     });
     try {
       // Get the directory to save the file
@@ -439,6 +441,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     checkFile();
     checkWifi();
     requestLocationPermission();
+    fetchCommands();
     super.initState();
   }
 
