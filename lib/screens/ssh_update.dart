@@ -28,7 +28,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool error_download = false;
   bool install_completed = false;
   double status_download = 0.0;
-  bool install_satisfied = true;
+  bool install_satisfied = false;
   String _filePath = '';
   String? ssid = "Unknown";
   String down_link =
