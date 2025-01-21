@@ -45,17 +45,14 @@ class SSHFileUploader {
       // Get file size
       final fileSize = await file.length();
 
-      // Create remote file
+      // Create remote file without truncating
       final remoteFile = await sftp.open(
         remotePath,
-        mode: SftpFileOpenMode.create |
-            SftpFileOpenMode.write |
-            SftpFileOpenMode.truncate,
+        mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
       );
 
       // Track progress
       int uploadedBytes = 0;
-      final chunkSize = 8192; // 8 KB chunks
 
       // Read and upload file in chunks
       final fileStream = file.openRead();
@@ -632,7 +629,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       .replaceAll('.0', '') +
                                   "%",
                               style: TextStyle(
-                                  color: slapp_color.secondary, fontSize: 26.0),
+                                  color: slapp_color.secondary,
+                                  fontSize: 26.0,
+                                  fontWeight: FontWeight.bold),
                             ),
                       progressColor: error_download
                           ? slapp_color.error
@@ -752,8 +751,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     )
                   : Container(),
-              Divider(
-                color: slapp_color.fifthiary,
+              Padding(
+                padding: EdgeInsets.only(bottom: 20.0),
+                child: Divider(
+                  color: slapp_color.fifthiary,
+                ),
               ),
               !install_completed
                   ? (!install_satisfied
