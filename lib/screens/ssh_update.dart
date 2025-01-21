@@ -25,12 +25,12 @@ class SSHFileUploader {
     required this.password,
   });
 
-  Future<void> uploadFile({
-    required File file,
-    required String remotePath,
-    required ValueNotifier<String> progressNotifier,
-    required VoidCallback onUploadComplete,
-  }) async {
+  Future<void> uploadFile(
+      {required File file,
+      required String remotePath,
+      required ValueNotifier<String> progressNotifier,
+      required VoidCallback onUploadComplete,
+      required VoidCallback onUploadError}) async {
     try {
       // Establish SSH connection
       final client = SSHClient(
@@ -84,6 +84,7 @@ class SSHFileUploader {
       onUploadComplete(); // This is where the callback gets called
     } catch (e) {
       progressNotifier.value = "Error: $e";
+      onUploadError();
     }
   }
 }
@@ -104,7 +105,8 @@ class SSHCommandExecutor {
   Future<void> runCommandsWithProgress(
       {required List<String> commands,
       required ValueNotifier<String> progressNotifier,
-      required Function() onCommandCompletion}) async {
+      required Function() onCommandCompletion,
+      required VoidCallback onCommandError}) async {
     try {
       // Connect to the remote server
       final client = SSHClient(
@@ -138,6 +140,7 @@ class SSHCommandExecutor {
       client.close();
     } catch (e) {
       progressNotifier.value = "Error: $e";
+      onCommandError();
     }
   }
 }
@@ -157,6 +160,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool is_install = false;
   bool error_download = false;
   bool install_completed = false;
+  bool is_error_cmd = false;
   double status_download = 0.0;
   bool install_satisfied = false;
   List<String> _commands = [];
@@ -235,7 +239,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         file: file,
         remotePath: remotePath,
         progressNotifier: _progressNotifier,
-        onUploadComplete: onUploadCompletion);
+        onUploadComplete: onUploadCompletion,
+        onUploadError: onUploadError);
   }
 
   void _runCommands() async {
@@ -249,7 +254,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     await executor.runCommandsWithProgress(
         commands: _commands,
         progressNotifier: _progressNotifier,
-        onCommandCompletion: onCommandCompletion);
+        onCommandCompletion: onCommandCompletion,
+        onCommandError: onCommandError);
   }
 
   void onCommandCompletion() async {
@@ -282,6 +288,18 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     ));
     await Future.delayed(Duration(seconds: 3));
     _runCommands();
+  }
+
+  void onUploadError() {
+    setState(() {
+      is_install = false;
+    });
+  }
+
+  void onCommandError() {
+    setState(() {
+      is_error_cmd = true;
+    });
   }
 
   // Future<void> runCommands() async {
@@ -650,11 +668,16 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   size: 120,
                                   color: slapp_color.error,
                                 )
-                              : Icon(
-                                  Icons.install_desktop,
-                                  size: 120,
-                                  color: slapp_color.primary,
-                                ))
+                              : (is_error_cmd
+                                  ? IconButton(
+                                      onPressed: _runCommands,
+                                      icon: Icon(
+                                          Icons.replay_circle_filled_outlined))
+                                  : Icon(
+                                      Icons.install_desktop,
+                                      size: 120,
+                                      color: slapp_color.primary,
+                                    )))
                           : (install_satisfied
                               ? Icon(
                                   Icons.close,
