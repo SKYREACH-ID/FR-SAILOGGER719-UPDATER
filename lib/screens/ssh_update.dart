@@ -576,7 +576,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
-                height: 160,
+                height: 50,
               ),
               is_download
                   ? CircularPercentIndicator(
