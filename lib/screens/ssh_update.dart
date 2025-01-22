@@ -553,13 +553,17 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          "CONNECTED-WIFI :".toUpperCase(),
+                          "CONNECTED-WIFI : $ssid".toUpperCase(),
                           style: TextStyle(color: slapp_color.white_text),
                         ),
-                        Text(
-                          ssid.toString().toUpperCase(),
-                          style: TextStyle(color: slapp_color.primary),
-                        ),
+                        IconButton(
+                            onPressed: () {
+                              checkWifi();
+                            },
+                            icon: Icon(
+                              Icons.replay_circle_filled,
+                              color: slapp_color.primary,
+                            )),
                       ],
                     ),
                   )))),
@@ -990,7 +994,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                         "Checking Device Connection...";
                                     setState(() {
                                       is_install = true;
-
                                       is_transfer = true;
                                     });
                                     checkWifi();
