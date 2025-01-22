@@ -531,37 +531,37 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       //   backgroundColor: slapp_color.tex,
       // ),
       appBar: AppBar(
-        centerTitle: true,
-         title: Image.asset(
-                'assets/images/sailogger_logo_white.png',
-                fit: BoxFit.fill,
-                height: 23.0,
-                width: 210.0,
-              ),
-        bottom: PreferredSize(
-            preferredSize: Size(MediaQuery.of(context).size.width, 60),
-            child: Container(
-                width: MediaQuery.of(context).size.width,
-                height: 50,
-                color: slapp_color.black_text,
-                child: Padding(
-                  padding: EdgeInsets.all(15.0),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "CONNECTED-WIFI :".toUpperCase(),
-                        style: TextStyle(color: slapp_color.white_text),
-                      ),
-                      Text(
-                        ssid.toString().toUpperCase(),
-                        style: TextStyle(color: slapp_color.primary),
-                      ),
-                    ],
-                  ),
-        )))),
+          centerTitle: true,
+          title: Image.asset(
+            'assets/images/sailogger_logo_white.png',
+            fit: BoxFit.fill,
+            height: 23.0,
+            width: 210.0,
+          ),
+          bottom: PreferredSize(
+              preferredSize: Size(MediaQuery.of(context).size.width, 60),
+              child: Container(
+                  width: MediaQuery.of(context).size.width,
+                  height: 50,
+                  color: slapp_color.black_text,
+                  child: Padding(
+                    padding: EdgeInsets.all(15.0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "CONNECTED-WIFI :".toUpperCase(),
+                          style: TextStyle(color: slapp_color.white_text),
+                        ),
+                        Text(
+                          ssid.toString().toUpperCase(),
+                          style: TextStyle(color: slapp_color.primary),
+                        ),
+                      ],
+                    ),
+                  )))),
       backgroundColor: slapp_color.white,
       body: Center(
         child: SingleChildScrollView(
@@ -724,7 +724,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
               is_install
                   ? Padding(
                       padding:
-                          EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
+                          EdgeInsets.only(bottom: 20.0, left: 20, right: 20),
                       child: ValueListenableBuilder<String>(
                         valueListenable: _progressNotifier,
                         builder: (context, value, child) {
@@ -739,6 +739,16 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             ),
                           );
                         },
+                      ),
+                    )
+                  : Container(),
+              is_install
+                  ? Padding(
+                      padding:
+                          EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
+                      child: Text(
+                        "DO NOT CLOSE THE APPLICATION, OR INSTALL WILL BE FAILED!",
+                        style: TextStyle(color: slapp_color.primary),
                       ),
                     )
                   : Container(),
@@ -981,8 +991,14 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                     });
                                     checkWifi();
                                     await Future.delayed(Duration(seconds: 5));
-                                    if (ssid.toString().toUpperCase().contains('SAILOGGER') ||
-                                        ssid.toString().toUpperCase().contains('SAILINK')) {
+                                    if (ssid
+                                            .toString()
+                                            .toUpperCase()
+                                            .contains('SAILOGGER') ||
+                                        ssid
+                                            .toString()
+                                            .toUpperCase()
+                                            .contains('SAILINK')) {
                                       setState(() {});
                                       await Future.delayed(
                                           Duration(seconds: 3));
