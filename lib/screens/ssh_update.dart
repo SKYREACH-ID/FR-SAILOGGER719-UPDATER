@@ -531,7 +531,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       //   backgroundColor: slapp_color.tex,
       // ),
       appBar: AppBar(
-        backgroundColor: slapp_color.black_text,
+          backgroundColor: slapp_color.black_text,
           centerTitle: true,
           title: Image.asset(
             'assets/images/sailogger_logo_white.png',
@@ -570,7 +570,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              SizedBox(height: 160,),
+              SizedBox(
+                height: 160,
+              ),
               is_download
                   ? CircularPercentIndicator(
                       radius: 100.0,
