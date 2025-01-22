@@ -81,6 +81,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   final Dio _dio = Dio();
   bool is_download = false;
   bool is_install = false;
+  bool is_transfer = false;
   bool error_download = false;
   bool install_completed = false;
   bool is_error_cmd = false;
@@ -92,7 +93,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String _url = "https://navigatorplus.sailink.id/";
   String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
   String down_filename = 'SAILOGGER-NEO-7.19.zip';
-  String _filePath_server = '/var/SAILOGGER-NEO-7.19.zip';
+  String _filePath_server = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
   PackageInfo _packageInfo = PackageInfo(
     appName: 'Unknown',
     packageName: 'Unknown',
@@ -303,6 +304,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       await remoteFile.close();
 
       print('File uploaded successfully to $remoteFilePath');
+      setState(() {
+        is_transfer = false;
+      });
 
       _runCommands();
       // Close the SFTP session
@@ -542,19 +546,15 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                 downloadFile(_url + down_link, down_filename);
                               },
                               icon: Icon(
-                                Icons.refresh,
+                                Icons.replay_circle_filled,
                                 size: 45.0,
                                 color: slapp_color.secondary,
                               ))
-                          : Text(
-                              status_download
-                                      .toStringAsFixed(0)
-                                      .replaceAll('.0', '') +
-                                  "%",
-                              style: TextStyle(
-                                  color: slapp_color.secondary,
-                                  fontSize: 26.0,
-                                  fontWeight: FontWeight.bold),
+                          : Image.asset(
+                              'assets/images/download.gif',
+                              fit: BoxFit.fill,
+                              height: 130.0,
+                              width: 130.0,
                             ),
                       progressColor: error_download
                           ? slapp_color.error
@@ -577,12 +577,21 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   ? IconButton(
                                       onPressed: _runCommands,
                                       icon: Icon(
+                                          color: slapp_color.black_text,
                                           Icons.replay_circle_filled_outlined))
-                                  : Icon(
-                                      Icons.install_desktop,
-                                      size: 120,
-                                      color: slapp_color.primary,
-                                    )))
+                                  : (is_transfer
+                                      ? Image.asset(
+                                          'assets/images/upload.gif',
+                                          fit: BoxFit.fill,
+                                          height: 150.0,
+                                          width: 150.0,
+                                        )
+                                      : Image.asset(
+                                          'assets/images/command.gif',
+                                          fit: BoxFit.fill,
+                                          height: 150.0,
+                                          width: 150.0,
+                                        ))))
                           : (install_satisfied
                               ? Icon(
                                   Icons.close,
@@ -592,7 +601,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                               : Icon(
                                   Icons.update,
                                   size: 120,
-                                  color: slapp_color.tertiary,
+                                  color: slapp_color.primary,
                                 ))),
               SizedBox(
                 height: 16.9,
@@ -653,11 +662,28 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             ],
                           )),
                     ),
-              is_install
+              is_install || is_download
                   ? Text('STATUS:',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: slapp_color.primary))
+                  : Container(),
+              is_download
+                  ? Padding(
+                      padding: EdgeInsets.only(bottom: 20),
+                      child: Text(
+                        "Ongoing Download : " +
+                            status_download
+                                .toStringAsFixed(0)
+                                .replaceAll('.0', '') +
+                            "%",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 20,
+                            color: slapp_color.black_text,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    )
                   : Container(),
               is_install
                   ? Padding(
@@ -910,8 +936,12 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       closeIconColor: slapp_color.white,
                                     ));
                                   } else {
+                                    _progressNotifier.value =
+                                        "Checking Device Connection...";
                                     setState(() {
                                       is_install = true;
+
+                                      is_transfer = true;
                                     });
                                     checkWifi();
                                     await Future.delayed(Duration(seconds: 2));
@@ -935,6 +965,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       ));
                                       setState(() {
                                         is_install = false;
+                                        is_transfer = false;
                                       });
                                     }
                                   }

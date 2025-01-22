@@ -91,6 +91,9 @@ flutter:
     - assets/images/slg_check.png
     - assets/images/test.txt
     - assets/images/icon_sl.png
+    - assets/images/download.gif
+    - assets/images/upload.gif
+    - assets/images/command.gif
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
