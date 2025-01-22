@@ -490,12 +490,12 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         });
       } catch (e) {
         setState(() {
-          ssid = "Failed to get SSID: $e";
+          ssid = "Failed to get SSID";
         });
       }
     } else {
       setState(() {
-        ssid = "Location permission denied";
+        ssid = "Permission Denied";
       });
     }
   }
@@ -526,6 +526,42 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // appBar: AppBar(
+      //   title: Text('SSID: $ssid',style: TextStyle(color: slapp_color.primary),),
+      //   backgroundColor: slapp_color.tex,
+      // ),
+      appBar: AppBar(
+        centerTitle: true,
+         title: Image.asset(
+                'assets/images/sailogger_logo_white.png',
+                fit: BoxFit.fill,
+                height: 23.0,
+                width: 210.0,
+              ),
+        bottom: PreferredSize(
+            preferredSize: Size(MediaQuery.of(context).size.width, 60),
+            child: Container(
+                width: MediaQuery.of(context).size.width,
+                height: 50,
+                color: slapp_color.black_text,
+                child: Padding(
+                  padding: EdgeInsets.all(15.0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "CONNECTED-WIFI :".toUpperCase(),
+                        style: TextStyle(color: slapp_color.white_text),
+                      ),
+                      Text(
+                        ssid.toString().toUpperCase(),
+                        style: TextStyle(color: slapp_color.primary),
+                      ),
+                    ],
+                  ),
+        )))),
       backgroundColor: slapp_color.white,
       body: Center(
         child: SingleChildScrollView(
@@ -944,9 +980,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       is_transfer = true;
                                     });
                                     checkWifi();
-                                    await Future.delayed(Duration(seconds: 2));
-                                    if (ssid.toString().contains('SAILOGGER') ||
-                                        ssid.toString().contains('SAILINK')) {
+                                    await Future.delayed(Duration(seconds: 5));
+                                    if (ssid.toString().toUpperCase().contains('SAILOGGER') ||
+                                        ssid.toString().toUpperCase().contains('SAILINK')) {
                                       setState(() {});
                                       await Future.delayed(
                                           Duration(seconds: 3));
