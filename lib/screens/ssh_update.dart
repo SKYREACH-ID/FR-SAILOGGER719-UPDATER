@@ -89,7 +89,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool install_satisfied = false;
   List<String> _commands = [];
   String _filePath = '';
-  String? ssid = "Unknown";
+  String? ssid = "SAILOGGER";
   String _url = "https://navigatorplus.sailink.id/";
   String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
   String down_filename = 'SAILOGGER-NEO-7.19.zip';
@@ -426,7 +426,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
-      checkWifi();
+      // checkWifi();
       fetchCommands();
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         backgroundColor: slapp_color.success,
@@ -517,7 +517,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   void initState() {
     _initPackageInfo();
     checkFile();
-    checkWifi();
+    // checkWifi();
     requestLocationPermission();
     fetchCommands();
     super.initState();
@@ -539,34 +539,35 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             height: 23.0,
             width: 210.0,
           ),
-          bottom: PreferredSize(
-              preferredSize: Size(MediaQuery.of(context).size.width, 60),
-              child: Container(
-                  width: MediaQuery.of(context).size.width,
-                  height: 50,
-                  color: slapp_color.black_text,
-                  child: Padding(
-                    padding: EdgeInsets.all(15.0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          "CONNECTED-WIFI : $ssid".toUpperCase(),
-                          style: TextStyle(color: slapp_color.white_text),
-                        ),
-                        IconButton(
-                            onPressed: () {
-                              checkWifi();
-                            },
-                            icon: Icon(
-                              Icons.replay_circle_filled,
-                              color: slapp_color.primary,
-                            )),
-                      ],
-                    ),
-                  )))),
+          // bottom: PreferredSize(
+          //     preferredSize: Size(MediaQuery.of(context).size.width, 60),
+          //     child: Container(
+          //         width: MediaQuery.of(context).size.width,
+          //         height: 50,
+          //         color: slapp_color.black_text,
+          //         child: Padding(
+          //           padding: EdgeInsets.all(15.0),
+          //           child: Row(
+          //             mainAxisSize: MainAxisSize.min,
+          //             crossAxisAlignment: CrossAxisAlignment.center,
+          //             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          //             children: [
+          //               Text(
+          //                 "CONNECTED-WIFI : $ssid".toUpperCase(),
+          //                 style: TextStyle(color: slapp_color.white_text),
+          //               ),
+          //               IconButton(
+          //                   onPressed: () {
+          //                     checkWifi();
+          //                   },
+          //                   icon: Icon(
+          //                     Icons.replay_circle_filled,
+          //                     color: slapp_color.primary,
+          //                   )),
+          //             ],
+          //           ),
+          //         )))),
+      ),
       backgroundColor: slapp_color.white,
       body: Center(
         child: SingleChildScrollView(
@@ -996,7 +997,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       is_install = true;
                                       is_transfer = true;
                                     });
-                                    checkWifi();
+                                    // checkWifi();
                                     await Future.delayed(Duration(seconds: 5));
                                     if (ssid
                                             .toString()
