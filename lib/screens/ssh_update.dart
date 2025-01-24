@@ -499,33 +499,34 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<bool> requestStoragePermission() async {
-  // Check the current permission status
-  final status = await Permission.storage.status;
+    // Check the current permission status
+    final status = await Permission.storage.status;
 
-  if (status.isGranted) {
-    // Permission is already granted
-    print("Storage permission is already granted.");
-    return true;
-  } else if (status.isDenied || status.isRestricted) {
-    // Request permission
-    final result = await Permission.storage.request();
-
-    if (result.isGranted) {
-      // Permission granted after request
-      print("Storage permission granted.");
+    if (status.isGranted) {
+      // Permission is already granted
+      print("Storage permission is already granted.");
       return true;
-    } else if (result.isPermanentlyDenied) {
-      // If permanently denied, guide the user to settings
-      print("Storage permission is permanently denied. Redirecting to settings...");
-      openAppSettings();
-    } else {
-      // Permission denied
-      print("Storage permission denied.");
-      return false;
+    } else if (status.isDenied || status.isRestricted) {
+      // Request permission
+      final result = await Permission.storage.request();
+
+      if (result.isGranted) {
+        // Permission granted after request
+        print("Storage permission granted.");
+        return true;
+      } else if (result.isPermanentlyDenied) {
+        // If permanently denied, guide the user to settings
+        print(
+            "Storage permission is permanently denied. Redirecting to settings...");
+        openAppSettings();
+      } else {
+        // Permission denied
+        print("Storage permission denied.");
+        return false;
+      }
     }
+    return false;
   }
-  return false;
-}
 
   Future<void> removeFile(filepath) async {
     final file = File(filepath);
@@ -633,16 +634,16 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+  void requestStorage() async {
+    final hasPermission = await requestStoragePermission();
 
-void requestStorage() async {
-  final hasPermission = await requestStoragePermission();
-
-  if (hasPermission) {
-    print("You can now access storage!");
-  } else {
-    print("Storage access is not permitted.");
+    if (hasPermission) {
+      print("You can now access storage!");
+    } else {
+      print("Storage access is not permitted.");
+    }
   }
-}
+
   @override
   void initState() {
     _initPackageInfo();
@@ -720,6 +721,63 @@ void requestStorage() async {
               SizedBox(
                 height: 10,
               ),
+              _commands.length > 0
+                  ? Container()
+                  : Container(
+                      margin: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 20),
+                      child: ElevatedButton(
+                          style: ButtonStyle(
+                            shape: MaterialStateProperty.all<
+                                    RoundedRectangleBorder>(
+                                const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.zero,
+                            )),
+                            backgroundColor:
+                                MaterialStateProperty.resolveWith<Color>(
+                              (Set<MaterialState> states) {
+                                return slapp_color.fifthiary.withOpacity(
+                                    0.6); // Defer to the widget's default.
+                              },
+                            ),
+                            elevation:
+                                MaterialStateProperty.resolveWith<double>(
+                              // As you said you dont need elevation. I'm returning 0 in both case
+                              (Set<MaterialState> states) {
+                                if (states.contains(MaterialState.disabled)) {
+                                  return 0;
+                                }
+                                return 0; // Defer to the widget's default.
+                              },
+                            ),
+                          ),
+                          onPressed: () async {
+                            fetchCommands();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.refresh,
+                                  color: slapp_color.primary,
+                                ),
+                                const SizedBox(
+                                  width: 10.0,
+                                ),
+                                Text(
+                                  "INSTALL-CMD Empty, Refresh!",
+                                  softWrap: true,
+                                  style: const TextStyle(
+                                      color: slapp_color.primary,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ),
               is_download
                   ? CircularPercentIndicator(
                       radius: 100.0,
