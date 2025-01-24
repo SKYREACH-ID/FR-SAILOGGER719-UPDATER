@@ -931,7 +931,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   } else {
                                     downloadFile(
                                         _url + down_link, down_filename);
-                                   
                                   }
                                 }
                               },
