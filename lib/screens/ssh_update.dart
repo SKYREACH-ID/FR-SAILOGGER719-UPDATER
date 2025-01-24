@@ -14,6 +14,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'package:sailogger719/screens/home_screen.dart';
 import 'package:wifi_iot/wifi_iot.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 class SSHCommandExecutor {
   final String host;
@@ -30,11 +31,13 @@ class SSHCommandExecutor {
 }
 
 class SSHFileTransferScreen extends StatefulWidget {
+  
   @override
   _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
 }
 
 class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
+  
   final String host = '172.24.1.1';
   final int port = 22;
   final String username = 'skyflix';
@@ -653,6 +656,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     requestStorage();
     fetchCommands();
     startMonitoringSSID();
+    WakelockPlus.enable();
     super.initState();
   }
 
@@ -687,6 +691,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   @override
   void dispose() {
     ssidCheckTimer?.cancel();
+    WakelockPlus.disable();
     super.dispose();
   }
 
