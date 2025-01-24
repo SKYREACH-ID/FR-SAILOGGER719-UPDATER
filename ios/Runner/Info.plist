@@ -49,5 +49,7 @@
 	<string>We need your location for...</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>We need your location for...</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to your photo library to save files.</string>
 </dict>
 </plist>

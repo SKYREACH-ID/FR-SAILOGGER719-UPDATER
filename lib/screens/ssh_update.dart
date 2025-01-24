@@ -498,6 +498,35 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+  Future<bool> requestStoragePermission() async {
+  // Check the current permission status
+  final status = await Permission.storage.status;
+
+  if (status.isGranted) {
+    // Permission is already granted
+    print("Storage permission is already granted.");
+    return true;
+  } else if (status.isDenied || status.isRestricted) {
+    // Request permission
+    final result = await Permission.storage.request();
+
+    if (result.isGranted) {
+      // Permission granted after request
+      print("Storage permission granted.");
+      return true;
+    } else if (result.isPermanentlyDenied) {
+      // If permanently denied, guide the user to settings
+      print("Storage permission is permanently denied. Redirecting to settings...");
+      openAppSettings();
+    } else {
+      // Permission denied
+      print("Storage permission denied.");
+      return false;
+    }
+  }
+  return false;
+}
+
   Future<void> removeFile(filepath) async {
     final file = File(filepath);
     try {
@@ -604,14 +633,26 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+
+void requestStorage() async {
+  final hasPermission = await requestStoragePermission();
+
+  if (hasPermission) {
+    print("You can now access storage!");
+  } else {
+    print("Storage access is not permitted.");
+  }
+}
   @override
   void initState() {
     _initPackageInfo();
     checkFile();
     getCurrentWifiSSID();
     requestLocationPermission();
+    requestStorage();
     fetchCommands();
     startMonitoringSSID();
+    
     super.initState();
   }
 
