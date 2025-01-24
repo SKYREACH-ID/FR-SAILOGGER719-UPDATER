@@ -1290,6 +1290,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                           '/home/skyflix/SAILOGGER-NEO-7.19.zip',
                                           '/home/skyflix/update719.sh',
                                           '/home/skyflix/update_screen.py',
+                                          '/home/skyflix/update719.log',
                                         ],
                                       );
                                     } else {
