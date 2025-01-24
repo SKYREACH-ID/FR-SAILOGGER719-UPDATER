@@ -370,7 +370,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     String localFilePath = _filePath;
     String remoteFilePath = _filePath_server;
     _progressNotifier.value =
-        "Copying File to SAILOGGER-DEVICE Please Wait...(10-25 minutes)";
+        "Starting to Transfer File to SAILOGGER-DEVICE, Please Wait...";
     try {
       final client = SSHClient(
         await SSHSocket.connect(host, port),
@@ -380,6 +380,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Start an SFTP session
       print('Starting SFTP session...');
+      _progressNotifier.value =
+          "Starting SFTP Session to SAILOGGER-DEVICE, Please Wait...";
       final sftp = await client.sftp();
 
       // Read the local file
@@ -393,7 +395,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Convert file contents to a Stream<Uint8List>
       final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
-
+      _progressNotifier.value =
+          "Copying File to SAILOGGER-DEVICE Please Wait...(10-25 minutes)";
       // Upload the file to the server
       print('Uploading file to $remoteFilePath...');
       final remoteFile = await sftp.open(
@@ -402,7 +405,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       await remoteFile.write(fileContentsStream);
       await remoteFile.close();
-
+      _progressNotifier.value = "File Succsessfully Copied to SAILOGGER-DEVICE";
       print('File uploaded successfully to $remoteFilePath');
       setState(() {
         is_transfer = false;
@@ -416,6 +419,15 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         is_install = false;
       });
       print('An error occurred: $e');
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        backgroundColor: slapp_color.error,
+        content: Text(
+          "$e",
+          style: TextStyle(color: slapp_color.white),
+        ),
+        showCloseIcon: true,
+        closeIconColor: slapp_color.white,
+      ));
     } finally {
       print('Closing connection...');
     }
@@ -1158,7 +1170,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       await Future.delayed(
                                           Duration(seconds: 3));
                                       checkAndDeleteFile();
-                                      
                                     } else {
                                       ScaffoldMessenger.maybeOf(context)
                                           ?.showSnackBar(SnackBar(
