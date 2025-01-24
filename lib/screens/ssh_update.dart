@@ -304,6 +304,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   void startUnzip() async {
+    setState(() {
+      is_unzip = true;
+    });
     await unzipFileUsingDartSSH2(
       host: host,
       port: 22,
