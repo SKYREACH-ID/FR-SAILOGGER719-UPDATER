@@ -464,6 +464,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       is_download = true;
       error_download = false;
     });
+    fetchCommands();
     try {
       final directory = await getApplicationDocumentsDirectory();
       final filePath = '${directory.path}/$filename';
@@ -930,7 +931,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   } else {
                                     downloadFile(
                                         _url + down_link, down_filename);
-                                    //fetchCommands();
+                                   
                                   }
                                 }
                               },
