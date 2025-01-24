@@ -12,6 +12,7 @@ import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
+import 'package:sailogger719/screens/home_screen.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 class SSHCommandExecutor {
@@ -52,6 +53,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   List<String> _commands = [];
   String _filePath = '';
   String? _ssid = "";
+  Timer? ssidCheckTimer;
   String _url = "https://navigatorplus.sailink.id/";
   String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
   String down_filename = 'SAILOGGER-NEO-7.19.zip';
@@ -157,6 +159,43 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       setState(() {
         _ssid = "Error";
       });
+    }
+  }
+
+  Future<void> checkAndDeleteFile() async {
+    try {
+      // Create an SSH client
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      // Run a command to check if the file exists
+      final checkResult = await client
+          .run('test -f $_filePath_server && echo "exists" || echo "notfound"');
+      final checkOutput =
+          utf8.decode(checkResult); // Convert Uint8List to String
+
+      if (checkOutput.trim() == "exists") {
+        print("File exists at $_filePath_server. Deleting...");
+        // Run a command to delete the file
+        final deleteResult = await client.run('rm $_filePath_server');
+        final deleteOutput = utf8.decode(deleteResult);
+
+        if (deleteOutput.isEmpty) {
+          print("File successfully deleted.");
+        } else {
+          print("Error during deletion: $deleteOutput");
+        }
+      } else {
+        print("File does not exist at $_filePath_server.");
+      }
+
+      // Close the SSH client
+      client.close();
+    } catch (e) {
+      print("An error occurred: $e");
     }
   }
 
@@ -558,7 +597,42 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     getCurrentWifiSSID();
     requestLocationPermission();
     fetchCommands();
+    startMonitoringSSID();
     super.initState();
+  }
+
+  void startMonitoringSSID() {
+    ssidCheckTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
+      final newSSID = await WiFiForIoTPlugin.getSSID();
+      if (newSSID != _ssid) {
+        setState(() {
+          _ssid = newSSID;
+        });
+        if (is_install) {
+          onSSIDChange(newSSID);
+        }
+      }
+    });
+  }
+
+  void onSSIDChange(String? newSSID) {
+    Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (context) => HomeScreen()));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      backgroundColor: slapp_color.error,
+      content: Text(
+        "Install Failed, Please Stay Connect to SAILOGGER-HOTSPOT",
+        style: TextStyle(color: slapp_color.white),
+      ),
+      showCloseIcon: true,
+      closeIconColor: slapp_color.white,
+    ));
+  }
+
+  @override
+  void dispose() {
+    ssidCheckTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -1081,6 +1155,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       setState(() {});
                                       await Future.delayed(
                                           Duration(seconds: 3));
+                                      checkAndDeleteFile();
                                       compareRemoteFileContent();
                                     } else {
                                       ScaffoldMessenger.maybeOf(context)
