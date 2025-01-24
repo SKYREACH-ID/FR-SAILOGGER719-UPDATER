@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/services.dart';
@@ -8,9 +10,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
-import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
+import 'package:wifi_iot/wifi_iot.dart';
 
 class SSHCommandExecutor {
   final String host;
@@ -24,48 +26,6 @@ class SSHCommandExecutor {
     required this.username,
     required this.password,
   });
-
-  Future<void> runCommandsWithProgress(
-      {required List<String> commands,
-      required ValueNotifier<String> progressNotifier,
-      required Function() onCommandCompletion,
-      required VoidCallback onCommandError}) async {
-    try {
-      // Connect to the remote server
-      final client = SSHClient(
-        await SSHSocket.connect(host, port),
-        username: username,
-        onPasswordRequest: () => password,
-      );
-
-      final totalCommands = commands.length;
-      int completedCommands = 0;
-
-      for (final command in commands) {
-        // Update progress before running the command
-        progressNotifier.value =
-            "Running: $command (${(completedCommands / totalCommands * 100).toStringAsFixed(1)}%)";
-
-        // Execute the command
-        final result = await client.execute(command);
-
-        // Update progress after completion
-        completedCommands++;
-        progressNotifier.value =
-            "Completed: $command\nOutput: ${result.stdout}\nProgress: ${(completedCommands / totalCommands * 100).toStringAsFixed(1)}%";
-      }
-
-      // Final update
-      progressNotifier.value = "All commands executed successfully (100%).";
-
-      onCommandCompletion();
-      // Close the SSH connection
-      client.close();
-    } catch (e) {
-      progressNotifier.value = "Error: $e";
-      onCommandError();
-    }
-  }
 }
 
 class SSHFileTransferScreen extends StatefulWidget {
@@ -82,6 +42,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool is_download = false;
   bool is_install = false;
   bool is_transfer = false;
+  bool is_checkwifi = true;
+  bool is_unzip = false;
   bool error_download = false;
   bool install_completed = false;
   bool is_error_cmd = false;
@@ -89,11 +51,13 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool install_satisfied = false;
   List<String> _commands = [];
   String _filePath = '';
-  String? ssid = "SAILOGGER";
+  String? _ssid = "";
   String _url = "https://navigatorplus.sailink.id/";
   String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
   String down_filename = 'SAILOGGER-NEO-7.19.zip';
   String _filePath_server = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
+  String remoteZipFile = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
+  String destinationzipPath = '/home/skyflix/';
   PackageInfo _packageInfo = PackageInfo(
     appName: 'Unknown',
     packageName: 'Unknown',
@@ -148,53 +112,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-  void _runCommands() async {
-    final executor = SSHCommandExecutor(
-      host: host,
-      port: port,
-      username: username,
-      password: password,
-    );
-
-    await executor.runCommandsWithProgress(
-        commands: _commands,
-        progressNotifier: _progressNotifier,
-        onCommandCompletion: onCommandCompletion,
-        onCommandError: onCommandError);
-  }
-
-  void onCommandCompletion() async {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-      backgroundColor: slapp_color.success,
-      content: Text(
-        "Install Completed",
-        style: TextStyle(color: slapp_color.white),
-      ),
-      showCloseIcon: true,
-      closeIconColor: slapp_color.white,
-    ));
-    await Future.delayed(Duration(seconds: 3));
-    setState(() {
-      is_install = false;
-      install_completed = true;
-    });
-    removeFile(_filePath);
-  }
-
-  void onUploadCompletion() async {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-      backgroundColor: slapp_color.success,
-      content: Text(
-        "Upload Successfully",
-        style: TextStyle(color: slapp_color.white),
-      ),
-      showCloseIcon: true,
-      closeIconColor: slapp_color.white,
-    ));
-    await Future.delayed(Duration(seconds: 3));
-    _runCommands();
-  }
-
   void onUploadError() {
     setState(() {
       is_install = false;
@@ -207,62 +124,205 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     });
   }
 
-  // Future<void> runCommands() async {
-  //   try {
-  //     final client = SSHClient(
-  //       await SSHSocket.connect(host, port),
-  //       username: username,
-  //       onPasswordRequest: () => password,
-  //     );
+  void getCurrentWifiSSID() async {
+    setState(() {
+      _ssid = 'Loading...';
+    });
+    try {
+      // Check if Wi-Fi is enabled
+      final isWifiEnabled = await WiFiForIoTPlugin.isEnabled();
+      if (!isWifiEnabled) {
+        print("Wi-Fi is not enabled.");
+        setState(() {
+          _ssid = 'Wi-Fi is not enabled';
+        });
+      }
 
-  //     try {
-  //       for (var command in _commands) {
-  //         print('Running command: $command');
-  //         var result = await client.run(command);
-  //         print('Result: $result');
-  //       }
-  //     } catch (e) {
-  //       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-  //         backgroundColor: slapp_color.error,
-  //         content: Text(
-  //           'Error executing commands: $e',
-  //           style: TextStyle(color: slapp_color.white),
-  //         ),
-  //         showCloseIcon: true,
-  //         closeIconColor: slapp_color.white,
-  //       ));
-  //     } finally {
-  //       client.close();
-  //       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-  //         backgroundColor: slapp_color.success,
-  //         content: Text(
-  //           "Install Completed",
-  //           style: TextStyle(color: slapp_color.white),
-  //         ),
-  //         showCloseIcon: true,
-  //         closeIconColor: slapp_color.white,
-  //       ));
-  //       await Future.delayed(Duration(seconds: 3));
-  //       setState(() {
-  //         is_install = false;
-  //         install_completed = true;
-  //       });
-  //       removeFile(_filePath);
-  //     }
-  //   } catch (e) {
-  //     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-  //       backgroundColor: slapp_color.error,
-  //       content: Text(
-  //         "Cannot Conenct SSH: $e",
-  //         style: TextStyle(color: slapp_color.white),
-  //       ),
-  //       showCloseIcon: true,
-  //       closeIconColor: slapp_color.white,
-  //     ));
-  //   }
-  // }
+      // Fetch the current Wi-Fi SSID
+      String? ssid = await WiFiForIoTPlugin.getSSID();
+      if (ssid != null && ssid.isNotEmpty) {
+        print("Current Wi-Fi SSID: $ssid");
+        setState(() {
+          _ssid = ssid;
+        });
+        // Return the SSID as a string
+      } else {
+        setState(() {
+          _ssid = "No Wi-Fi Connected";
+        });
+        print("No Wi-Fi connected.");
+      }
+    } catch (e) {
+      print("Error fetching SSID: $e");
+      setState(() {
+        _ssid = "Error";
+      });
+    }
+  }
+
+  Future<void> runCommands() async {
+    try {
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      try {
+        for (var command in _commands) {
+          print('Running command: $command');
+          var result = await client.run(command);
+          print('Result: $result');
+        }
+      } catch (e) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            'Error executing commands: $e',
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ));
+      } finally {
+        client.close();
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          backgroundColor: slapp_color.success,
+          content: Text(
+            "Install Completed",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ));
+        _progressNotifier.value = "Install Completed";
+        await Future.delayed(Duration(seconds: 3));
+        setState(() {
+          is_install = false;
+          install_completed = true;
+        });
+        removeFile(_filePath);
+      }
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        backgroundColor: slapp_color.error,
+        content: Text(
+          "Cannot Conenct SSH: $e",
+          style: TextStyle(color: slapp_color.white),
+        ),
+        showCloseIcon: true,
+        closeIconColor: slapp_color.white,
+      ));
+    }
+  }
+
+  Future<void> removeFileFromServer() async {
+    try {
+      // Connect to the SSH server
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      // Execute the `rm` command to delete the file
+      final rmCommand = "rm -f $_filePath_server";
+      final rmSession = await client.execute(rmCommand);
+
+      // Read and print the output (if any) for debugging
+      final output = await rmSession.stdout.join();
+      await rmSession.done;
+
+      print("File removed successfully. Command output: $output");
+
+      // Close the SSH client
+      client.close();
+    } catch (e) {
+      print("Error while removing file: $e");
+    }
+  }
+
+  Future<void> unzipFileUsingDartSSH2({
+    required String host,
+    required int port,
+    required String username,
+    required String password,
+    required String remoteZipFilePath,
+    required String destinationPath,
+    required Function(String) onProgress,
+  }) async {
+    try {
+      // Connect to the SSH server
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      // Check the size of the zip file for progress calculation
+      final statCommand = "stat -c%s $remoteZipFilePath";
+      final statSession = await client.execute(statCommand);
+
+      final statResult = await statSession.stdout.join();
+      await statSession.done;
+
+      final fileSize =
+          int.tryParse(statResult.trim()) ?? 1; // Avoid division by zero
+
+      // Run the unzip command
+      final unzipCommand = "unzip -o $remoteZipFilePath -d $destinationPath";
+      final unzipSession = await client.execute(unzipCommand);
+
+      int bytesProcessed = 0;
+
+      // Track progress from the unzip output
+      unzipSession.stdout.listen((data) {
+        final output = String.fromCharCodes(data);
+        print(output); // Log the output for debugging
+
+        // Example progress tracking logic
+        bytesProcessed += data.length;
+        final double progress = (bytesProcessed / fileSize) * 100;
+        onProgress("Unzipping progress: ${progress.toStringAsFixed(2)}%");
+      });
+
+      // Wait for the unzip command to complete
+      await unzipSession.done;
+      print("Unzipping complete!");
+      _progressNotifier.value = "Installing Update, Please Wait...";
+      setState(() {
+        is_unzip = false;
+      });
+      removeFileFromServer();
+      runCommands();
+
+      // Close the SSH client
+      client.close();
+    } catch (e) {
+      print("Error while unzipping: $e");
+    }
+  }
+
+  void startUnzip() async {
+    await unzipFileUsingDartSSH2(
+      host: host,
+      port: 22,
+      username: username,
+      password: password,
+      remoteZipFilePath: remoteZipFile,
+      destinationPath: destinationzipPath,
+      onProgress: (progress) {
+        _progressNotifier.value = "Unziping Update File, Please Wait...";
+        print(progress);
+      },
+    );
+  }
 
   Future<void> uploadFileToSSHServer() async {
+    setState(() {
+      is_transfer = true;
+      is_checkwifi = false;
+    });
     String localFilePath = _filePath;
     String remoteFilePath = _filePath_server;
     _progressNotifier.value =
@@ -272,10 +332,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         await SSHSocket.connect(host, port),
         username: username,
         onPasswordRequest: () => password,
-        keepAliveInterval: Duration(seconds: 30),
-        printDebug: (p0) {
-          print(p0);
-        },
       );
 
       // Start an SFTP session
@@ -308,7 +364,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         is_transfer = false;
       });
 
-      _runCommands();
+      startUnzip();
       // Close the SFTP session
       sftp.close();
     } catch (e) {
@@ -365,7 +421,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       // Close the connection
       client.close();
     } catch (e) {
-      print('Error: $e');
+      print('Error File Version: $e');
       uploadFileToSSHServer();
     }
   }
@@ -426,7 +482,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
-      // checkWifi();
       fetchCommands();
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         backgroundColor: slapp_color.success,
@@ -479,27 +534,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     await checkFileExists(filePath);
   }
 
-  Future<void> checkWifi() async {
-    if (await Permission.location.request().isGranted) {
-      try {
-        final info = NetworkInfo();
-        final currentSSID = await info.getWifiName(); // Get current SSID
-
-        setState(() {
-          ssid = currentSSID ?? "No Wi-Fi connected";
-        });
-      } catch (e) {
-        setState(() {
-          ssid = "Failed to get SSID";
-        });
-      }
-    } else {
-      setState(() {
-        ssid = "Permission Denied";
-      });
-    }
-  }
-
   Future<void> requestLocationPermission() async {
     PermissionStatus status = await Permission.location.request();
 
@@ -517,7 +551,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   void initState() {
     _initPackageInfo();
     checkFile();
-    // checkWifi();
+    getCurrentWifiSSID();
     requestLocationPermission();
     fetchCommands();
     super.initState();
@@ -526,47 +560,23 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // appBar: AppBar(
-      //   title: Text('SSID: $ssid',style: TextStyle(color: slapp_color.primary),),
-      //   backgroundColor: slapp_color.tex,
-      // ),
       appBar: AppBar(
-          backgroundColor: slapp_color.black_text,
-          centerTitle: true,
-          title: Image.asset(
-            'assets/images/sailogger_logo_white.png',
-            fit: BoxFit.fill,
-            height: 23.0,
-            width: 210.0,
+        backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
+        title: Text(
+          'Wi-Fi : $_ssid',
+          style: TextStyle(color: slapp_color.primary, fontSize: 16),
+        ),
+        actions: [
+          IconButton(
+            onPressed: () {
+              getCurrentWifiSSID();
+            },
+            icon: Icon(
+              Icons.refresh,
+              color: slapp_color.primary,
+            ),
           ),
-          // bottom: PreferredSize(
-          //     preferredSize: Size(MediaQuery.of(context).size.width, 60),
-          //     child: Container(
-          //         width: MediaQuery.of(context).size.width,
-          //         height: 50,
-          //         color: slapp_color.black_text,
-          //         child: Padding(
-          //           padding: EdgeInsets.all(15.0),
-          //           child: Row(
-          //             mainAxisSize: MainAxisSize.min,
-          //             crossAxisAlignment: CrossAxisAlignment.center,
-          //             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          //             children: [
-          //               Text(
-          //                 "CONNECTED-WIFI : $ssid".toUpperCase(),
-          //                 style: TextStyle(color: slapp_color.white_text),
-          //               ),
-          //               IconButton(
-          //                   onPressed: () {
-          //                     checkWifi();
-          //                   },
-          //                   icon: Icon(
-          //                     Icons.replay_circle_filled,
-          //                     color: slapp_color.primary,
-          //                   )),
-          //             ],
-          //           ),
-          //         )))),
+        ],
       ),
       backgroundColor: slapp_color.white,
       body: Center(
@@ -576,7 +586,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
-                height: 50,
+                height: 10,
               ),
               is_download
                   ? CircularPercentIndicator(
@@ -606,48 +616,72 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                           : slapp_color.primary,
                     )
                   : (install_completed && !is_install
-                      ? Icon(
-                          Icons.check_circle_outlined,
-                          size: 120,
-                          color: slapp_color.success,
+                      ? Image.asset(
+                          'assets/images/complete.gif',
+                          fit: BoxFit.fill,
+                          height: 150.0,
+                          width: 150.0,
                         )
                       : is_install
                           ? (install_satisfied
-                              ? Icon(
-                                  Icons.close,
-                                  size: 120,
-                                  color: slapp_color.error,
+                              ? Image.asset(
+                                  'assets/images/already.gif',
+                                  fit: BoxFit.fill,
+                                  height: 150.0,
+                                  width: 150.0,
                                 )
                               : (is_error_cmd
                                   ? IconButton(
-                                      onPressed: _runCommands,
+                                      onPressed: runCommands,
                                       icon: Icon(
                                           color: slapp_color.black_text,
                                           Icons.replay_circle_filled_outlined))
-                                  : (is_transfer
+                                  : (is_checkwifi
                                       ? Image.asset(
-                                          'assets/images/upload.gif',
+                                          'assets/images/wifi.gif',
                                           fit: BoxFit.fill,
                                           height: 150.0,
                                           width: 150.0,
                                         )
-                                      : Image.asset(
-                                          'assets/images/command.gif',
-                                          fit: BoxFit.fill,
-                                          height: 150.0,
-                                          width: 150.0,
-                                        ))))
+                                      : is_transfer
+                                          ? Image.asset(
+                                              'assets/images/upload_static.png',
+                                              fit: BoxFit.fill,
+                                              height: 100.0,
+                                              width: 100.0,
+                                            )
+                                          : is_unzip
+                                              ? Image.asset(
+                                                  'assets/images/unzip.gif',
+                                                  fit: BoxFit.fill,
+                                                  height: 150.0,
+                                                  width: 150.0,
+                                                )
+                                              : Image.asset(
+                                                  'assets/images/command.gif',
+                                                  fit: BoxFit.fill,
+                                                  height: 150.0,
+                                                  width: 150.0,
+                                                ))))
                           : (install_satisfied
                               ? Icon(
                                   Icons.close,
                                   size: 120,
                                   color: slapp_color.error,
                                 )
-                              : Icon(
-                                  Icons.update,
-                                  size: 120,
-                                  color: slapp_color.primary,
-                                ))),
+                              : (_filePath.length > 0
+                                  ? Image.asset(
+                                      'assets/images/ready_install.gif',
+                                      fit: BoxFit.fill,
+                                      height: 150.0,
+                                      width: 150.0,
+                                    )
+                                  : Image.asset(
+                                      'assets/images/updates.gif',
+                                      fit: BoxFit.fill,
+                                      height: 150.0,
+                                      width: 150.0,
+                                    )))),
               SizedBox(
                 height: 16.9,
               ),
@@ -665,32 +699,61 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                           'Sailogger is Already on Version 7.19',
                                       style: TextStyle(
                                           color: slapp_color.black_text,
-                                          fontSize: 18)),
+                                          fontSize: 20)),
                                 ],
                               )),
                         )
                       : (!is_install && !is_download
-                          ? Padding(
-                              padding: EdgeInsets.all(20.0),
-                              child: RichText(
-                                  textAlign: TextAlign.center,
-                                  text: TextSpan(
-                                    style:
-                                        TextStyle(color: slapp_color.secondary),
-                                    children: <TextSpan>[
-                                      TextSpan(
-                                          text:
-                                              'Please follow 2 steps bellow to update your ',
-                                          style: TextStyle(
-                                              color: slapp_color.black_text)),
-                                      TextSpan(
-                                          text: 'SAILOGGER-SOFTWARE ',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: slapp_color.primary)),
-                                    ],
-                                  )),
-                            )
+                          ? (_filePath.length > 0
+                              ? Padding(
+                                  padding: EdgeInsets.all(20.0),
+                                  child: RichText(
+                                      textAlign: TextAlign.center,
+                                      text: TextSpan(
+                                        style: TextStyle(
+                                            color: slapp_color.secondary),
+                                        children: <TextSpan>[
+                                          TextSpan(
+                                              text:
+                                                  'Update File is Ready to Install, ',
+                                              style: TextStyle(
+                                                  color: slapp_color.black_text,
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.bold)),
+                                          TextSpan(
+                                              text:
+                                                  'Please Click Install Button ',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: slapp_color.primary,
+                                                  fontSize: 20)),
+                                        ],
+                                      )),
+                                )
+                              : Padding(
+                                  padding: EdgeInsets.all(20.0),
+                                  child: RichText(
+                                      textAlign: TextAlign.center,
+                                      text: TextSpan(
+                                        style: TextStyle(
+                                            color: slapp_color.secondary),
+                                        children: <TextSpan>[
+                                          TextSpan(
+                                              text:
+                                                  'Please follow 2 steps bellow to update your ',
+                                              style: TextStyle(
+                                                  color: slapp_color.black_text,
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.bold)),
+                                          TextSpan(
+                                              text: 'SAILOGGER-SOFTWARE ',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: slapp_color.primary,
+                                                  fontSize: 15)),
+                                        ],
+                                      )),
+                                ))
                           : Container()))
                   : Padding(
                       padding: EdgeInsets.all(20.0),
@@ -703,7 +766,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   text: 'Sailogger Update is completed ',
                                   style: TextStyle(
                                       color: slapp_color.black_text,
-                                      fontSize: 18)),
+                                      fontSize: 20)),
                             ],
                           )),
                     ),
@@ -756,8 +819,13 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       padding:
                           EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
                       child: Text(
+                        textAlign: TextAlign.center,
                         "DO NOT CLOSE THE APPLICATION, OR INSTALL WILL BE FAILED!",
-                        style: TextStyle(color: slapp_color.primary),
+                        style: TextStyle(
+                          color: slapp_color.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     )
                   : Container(),
@@ -995,15 +1063,15 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                         "Checking Device Connection...";
                                     setState(() {
                                       is_install = true;
-                                      is_transfer = true;
+                                      is_checkwifi = true;
                                     });
-                                    // checkWifi();
-                                    await Future.delayed(Duration(seconds: 5));
-                                    if (ssid
+                                    getCurrentWifiSSID();
+                                    await Future.delayed(Duration(seconds: 10));
+                                    if (_ssid
                                             .toString()
                                             .toUpperCase()
                                             .contains('SAILOGGER') ||
-                                        ssid
+                                        _ssid
                                             .toString()
                                             .toUpperCase()
                                             .contains('SAILINK')) {
@@ -1049,14 +1117,9 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     is_install
-                                        ? SizedBox(
-                                            child: Center(
-                                                child:
-                                                    CircularProgressIndicator(
-                                              color: slapp_color.white,
-                                            )),
-                                            height: 20.0,
-                                            width: 20.0,
+                                        ? Icon(
+                                            Icons.arrow_circle_up_rounded,
+                                            color: slapp_color.white,
                                           )
                                         : Icon(
                                             Icons.install_desktop,
@@ -1138,21 +1201,56 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: Padding(
-          padding: MediaQuery.of(context).viewInsets,
-          child: SizedBox(
-            height: 90,
-            child: Container(
-              child: Center(
-                child: Text(
-                    _packageInfo.appName +
-                        ' by skyreach v' +
-                        _packageInfo.version,
-                    style: TextStyle(
-                        color: slapp_color.secondary.withOpacity(0.5))),
-              ),
-            ),
-          )),
+      // bottomNavigationBar: Container(
+      //     color: slapp_color.tertiary,
+      //     child: Padding(
+      //       padding: MediaQuery.of(context).viewInsets,
+      //       child:  Container(
+      //               margin: const EdgeInsets.symmetric(
+      //                   vertical: 10, horizontal: 20),
+      //               child: ElevatedButton(
+      //                   style: ButtonStyle(
+      //                     shape:
+      //                         MaterialStateProperty.all<RoundedRectangleBorder>(
+      //                             const RoundedRectangleBorder(
+      //                       borderRadius: BorderRadius.zero,
+      //                     )),
+      //                     backgroundColor:
+      //                         MaterialStateProperty.resolveWith<Color>(
+      //                       (Set<MaterialState> states) {
+      //                         return slapp_color.primary;
+      //                       },
+      //                     ),
+      //                     elevation: MaterialStateProperty.resolveWith<double>(
+      //                       // As you said you dont need elevation. I'm returning 0 in both case
+      //                       (Set<MaterialState> states) {
+      //                         if (states.contains(MaterialState.disabled)) {
+      //                           return 0;
+      //                         }
+      //                         return 0; // Defer to the widget's default.
+      //                       },
+      //                     ),
+      //                   ),
+      //                   onPressed: () {
+      //                   },
+      //                   child: Padding(
+      //                     padding: const EdgeInsets.all(10),
+      //                     child: Row(
+      //                       mainAxisAlignment: MainAxisAlignment.center,
+      //                       children: [
+      //                         Text(
+      //                            "Start Action".toUpperCase(),
+      //                           style: const TextStyle(
+      //                               color: slapp_color.white,
+      //                               fontSize: 16,
+      //                               fontWeight: FontWeight.bold),
+      //                         ),
+      //                       ],
+      //                     ),
+      //                   )),
+      //             )
+      //           ,
+      //     ),),
     );
   }
 }

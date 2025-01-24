@@ -49,6 +49,7 @@ dependencies:
   change_app_package_name: ^1.4.0
   dio: ^5.7.0
   network_info_plus: ^6.1.3
+  wifi_iot: ^0.3.19+1
 
 dev_dependencies:
   flutter_test:
@@ -87,13 +88,17 @@ flutter:
   assets:
     - assets/images/sailogger_logo.png
     - assets/images/sailogger_logo_white.png
-    - assets/images/login_logo.png
-    - assets/images/slg_check.png
-    - assets/images/test.txt
     - assets/images/icon_sl.png
     - assets/images/download.gif
     - assets/images/upload.gif
     - assets/images/command.gif
+    - assets/images/unzip.gif
+    - assets/images/upload_static.png
+    - assets/images/wifi.gif
+    - assets/images/ready_install.gif
+    - assets/images/already.gif
+    - assets/images/complete.gif
+    - assets/images/updates.gif
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
