@@ -194,6 +194,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Close the SSH client
       client.close();
+
+      compareRemoteFileContent();
     } catch (e) {
       print("An error occurred: $e");
     }
@@ -1156,7 +1158,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       await Future.delayed(
                                           Duration(seconds: 3));
                                       checkAndDeleteFile();
-                                      compareRemoteFileContent();
+                                      
                                     } else {
                                       ScaffoldMessenger.maybeOf(context)
                                           ?.showSnackBar(SnackBar(
