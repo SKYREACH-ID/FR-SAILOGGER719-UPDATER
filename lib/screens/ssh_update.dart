@@ -31,13 +31,11 @@ class SSHCommandExecutor {
 }
 
 class SSHFileTransferScreen extends StatefulWidget {
-  
   @override
   _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
 }
 
 class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
-  
   final String host = '172.24.1.1';
   final int port = 22;
   final String username = 'skyflix';
@@ -165,7 +163,13 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-  Future<void> checkAndDeleteFile() async {
+  Future<void> checkAndRemoveFiles({
+    required String host,
+    required int port,
+    required String username,
+    required String password,
+    required List<String> paths,
+  }) async {
     try {
       // Create an SSH client
       final client = SSHClient(
@@ -174,25 +178,26 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         onPasswordRequest: () => password,
       );
 
-      // Run a command to check if the file exists
-      final checkResult = await client
-          .run('test -f $_filePath_server && echo "exists" || echo "notfound"');
-      final checkOutput =
-          utf8.decode(checkResult); // Convert Uint8List to String
+      for (var path in paths) {
+        // Check if the file or folder exists
+        final checkResult = await client
+            .run('test -e "$path" && echo "exists" || echo "notfound"');
+        final checkOutput = String.fromCharCodes(checkResult).trim();
 
-      if (checkOutput.trim() == "exists") {
-        print("File exists at $_filePath_server. Deleting...");
-        // Run a command to delete the file
-        final deleteResult = await client.run('rm $_filePath_server');
-        final deleteOutput = utf8.decode(deleteResult);
+        if (checkOutput == "exists") {
+          print("$path exists. Removing...");
+          // Remove the file or folder
+          final removeResult = await client.run('rm -rf "$path"');
+          final removeOutput = String.fromCharCodes(removeResult).trim();
 
-        if (deleteOutput.isEmpty) {
-          print("File successfully deleted.");
+          if (removeOutput.isEmpty) {
+            print("$path successfully removed.");
+          } else {
+            print("Error removing $path: $removeOutput");
+          }
         } else {
-          print("Error during deletion: $deleteOutput");
+          print("$path does not exist.");
         }
-      } else {
-        print("File does not exist at $_filePath_server.");
       }
 
       // Close the SSH client
@@ -1272,7 +1277,21 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       setState(() {});
                                       await Future.delayed(
                                           Duration(seconds: 3));
-                                      checkAndDeleteFile();
+                                      checkAndRemoveFiles(
+                                        host: host,
+                                        port: port,
+                                        username: username,
+                                        password: password,
+                                        paths: [
+                                          '/home/skyflix/html',
+                                          '/home/skyflix/PyDashboard',
+                                          '/home/skyflix/Python',
+                                          '/home/skyflix/system-download',
+                                          '/home/skyflix/SAILOGGER-NEO-7.19.zip',
+                                          '/home/skyflix/update719.sh',
+                                          '/home/skyflix/update_screen.py',
+                                        ],
+                                      );
                                     } else {
                                       ScaffoldMessenger.maybeOf(context)
                                           ?.showSnackBar(SnackBar(
