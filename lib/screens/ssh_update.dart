@@ -774,7 +774,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                             ],
                           )),
                     ),
-              is_install || is_download
+              (is_install || is_download) && !install_satisfied
                   ? Text('STATUS:',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
@@ -797,7 +797,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     )
                   : Container(),
-              is_install
+              is_install && !install_satisfied
                   ? Padding(
                       padding:
                           EdgeInsets.only(bottom: 20.0, left: 20, right: 20),
