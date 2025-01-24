@@ -652,7 +652,6 @@ void requestStorage() async {
     requestStorage();
     fetchCommands();
     startMonitoringSSID();
-    
     super.initState();
   }
 
