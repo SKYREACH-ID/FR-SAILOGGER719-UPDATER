@@ -612,7 +612,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
   Future<void> checkFile() async {
     String filePath =
-        '/sdcard/Download/$down_filename'; // Replace with your file path
+        '/sdcard/Download/$down_filename'; 
     await checkFileExists(filePath);
   }
 
