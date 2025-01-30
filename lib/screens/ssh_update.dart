@@ -64,8 +64,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String _versionPath = '/var/Python/Version';
   final ValueNotifier<String> _progressNotifier = ValueNotifier<String>("");
 
-
-
   void fetchCommands() async {
     setState(() {
       _commands.clear();
@@ -611,8 +609,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<void> checkFile() async {
-    String filePath =
-        '/sdcard/Download/$down_filename'; 
+    String filePath = '/sdcard/Download/$down_filename';
     await checkFileExists(filePath);
   }
 
