@@ -61,23 +61,10 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String _filePath_server = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
   String remoteZipFile = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
   String destinationzipPath = '/home/skyflix/';
-  PackageInfo _packageInfo = PackageInfo(
-    appName: 'Unknown',
-    packageName: 'Unknown',
-    version: 'Unknown',
-    buildNumber: 'Unknown',
-    buildSignature: 'Unknown',
-    installerStore: 'Unknown',
-  );
   String _versionPath = '/var/Python/Version';
   final ValueNotifier<String> _progressNotifier = ValueNotifier<String>("");
 
-  Future<void> _initPackageInfo() async {
-    final info = await PackageInfo.fromPlatform();
-    setState(() {
-      _packageInfo = info;
-    });
-  }
+
 
   void fetchCommands() async {
     setState(() {
@@ -654,7 +641,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
   @override
   void initState() {
-    _initPackageInfo();
     checkFile();
     getCurrentWifiSSID();
     requestLocationPermission();
