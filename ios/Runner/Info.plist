@@ -51,5 +51,17 @@
 	<string>We need your location for...</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>We need access to your photo library to save files.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    <string>Your message describing why the app needs location access</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Your message describing why the app needs always location access</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We need your location to access WiFi networks.</string>
+	
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>We need your location to access WiFi networks.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>We need your location to access WiFi networks.</string>
+
 </dict>
 </plist>
