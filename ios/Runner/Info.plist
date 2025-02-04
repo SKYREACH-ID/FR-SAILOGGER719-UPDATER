@@ -57,11 +57,12 @@
     <string>Your message describing why the app needs always location access</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We need your location to access WiFi networks.</string>
-	
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>We need your location to access WiFi networks.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We need your location to access WiFi networks.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 
 </dict>
 </plist>
