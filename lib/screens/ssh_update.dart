@@ -446,26 +446,26 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       final fileContent = utf8.decode(content);
 
       // Compare file content with the given string
-      if (fileContent.contains('7.19')) {
-        print('File content matches the expected content!');
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          backgroundColor: slapp_color.primary,
-          content: Text(
-            "SAILOGGER-NEO IS ALREADY ON VERSION 7.19",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
-        removeFile(_filePath);
-        setState(() {
-          install_satisfied = true;
-        });
-      } else {
-        print('File content not match expected content!');
-        uploadFileToSSHServer();
-      }
-
+      // if (fileContent.contains('7.19')) {
+      //   print('File content matches the expected content!');
+      //   ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      //     backgroundColor: slapp_color.primary,
+      //     content: Text(
+      //       "SAILOGGER-NEO IS ALREADY ON VERSION 7.19",
+      //       style: TextStyle(color: slapp_color.white),
+      //     ),
+      //     showCloseIcon: true,
+      //     closeIconColor: slapp_color.white,
+      //   ));
+      //   removeFile(_filePath);
+      //   setState(() {
+      //     install_satisfied = true;
+      //   });
+      // } else {
+      //   print('File content not match expected content!');
+      //   uploadFileToSSHServer();
+      // }
+      uploadFileToSSHServer();
       // Close the connection
       client.close();
     } catch (e) {
