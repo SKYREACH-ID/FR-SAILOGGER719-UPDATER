@@ -193,6 +193,64 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
+
+  Future<void> refreshGps() async {
+    try {
+      final client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      try {
+        // Run the single refresh GPS command
+        const command = 'sudo /usr/bin/bash /refresh-gps.sh';
+        print('Running command: $command');
+        var result = await client.run(command);
+        print('Result: $result');
+        
+      } catch (e) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            'Error executing command: $e',
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ));
+      } finally {
+        client.close();
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          backgroundColor: slapp_color.success,
+          content: Text(
+            "GPS Refresh Completed",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ));
+        _progressNotifier.value = "GPS Refresh Completed";
+        await Future.delayed(Duration(seconds: 3));
+        setState(() {
+          is_install = false;
+          install_completed = true;
+        });
+        removeFile(_filePath);
+      }
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        backgroundColor: slapp_color.error,
+        content: Text(
+          "Cannot Connect SSH: $e",
+          style: TextStyle(color: slapp_color.white),
+        ),
+        showCloseIcon: true,
+        closeIconColor: slapp_color.white,
+      ));
+    }
+  }
+
   Future<void> runCommands() async {
     try {
       final client = SSHClient(
@@ -701,6 +759,15 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
               color: slapp_color.primary,
             ),
           ),
+           IconButton(
+            onPressed: () {
+              refreshGps();
+            },
+            icon: Icon(
+              Icons.share_location_rounded,
+              color: slapp_color.primary,
+            ),
+          )
         ],
       ),
       backgroundColor: slapp_color.white,
