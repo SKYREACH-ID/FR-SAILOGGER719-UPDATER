@@ -232,11 +232,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         ));
         _progressNotifier.value = "GPS Refresh Completed";
         await Future.delayed(Duration(seconds: 3));
-        setState(() {
-          is_install = false;
-          install_completed = true;
-        });
-        removeFile(_filePath);
       }
     } catch (e) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
@@ -743,33 +738,61 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
-        title: Text(
-          'Wi-Fi : $_ssid',
-          style: TextStyle(color: slapp_color.primary, fontSize: 16),
-        ),
-        actions: [
-          IconButton(
-            onPressed: () {
-              getCurrentWifiSSID();
-            },
-            icon: Icon(
-              Icons.refresh,
-              color: slapp_color.primary,
-            ),
-          ),
-           IconButton(
-            onPressed: () {
-              refreshGps();
-            },
-            icon: Icon(
-              Icons.share_location_rounded,
-              color: slapp_color.primary,
-            ),
-          )
-        ],
+     appBar: AppBar(
+  backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
+  title: Text(
+    'Wi-Fi : $_ssid',
+    style: TextStyle(color: slapp_color.primary, fontSize: 16),
+  ),
+  actions: [
+    IconButton(
+      onPressed: () {
+        getCurrentWifiSSID();
+      },
+      icon: Icon(
+        Icons.refresh,
+        color: slapp_color.primary,
       ),
+    ),
+    PopupMenuButton<String>(
+      icon: Icon(
+        Icons.menu,
+        color: slapp_color.primary,
+      ),
+      onSelected: (String value) {
+        if (value == 'refreshGPS') {
+          refreshGps();
+        } else if (value == 'deleteInstaller') {
+          // Add your delete installer function here
+          if(_filePath.length > 0){
+            removeFile(_filePath);
+            }else{
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            "No Installer File Found",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ));
+            }
+       
+        }
+      },
+      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(
+          value: 'refreshGPS',
+          child: Text('Refresh GPS'),
+        ),
+        const PopupMenuItem<String>(
+          value: 'deleteInstaller',
+          child: Text('Delete Installer'),
+        ),
+      ],
+    ),
+  ],
+),
       backgroundColor: slapp_color.white,
       body: Center(
         child: SingleChildScrollView(
