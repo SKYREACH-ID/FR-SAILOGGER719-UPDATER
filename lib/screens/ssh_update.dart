@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/services.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
@@ -30,6 +31,9 @@ class SSHCommandExecutor {
 }
 
 class SSHFileTransferScreen extends StatefulWidget {
+  final String? initialSsid;
+  const SSHFileTransferScreen({super.key, this.initialSsid});
+
   @override
   _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
 }
@@ -53,6 +57,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   List<String> _commands = [];
   String _filePath = '';
   String? _ssid = "";
+  String _wifiIp = "-";
   Timer? ssidCheckTimer;
   String _url = "https://navigatorplus.sailink.id/";
   String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
@@ -62,6 +67,22 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String destinationzipPath = '/home/skyflix/';
   String _versionPath = '/var/Python/Version';
   final ValueNotifier<String> _progressNotifier = ValueNotifier<String>("");
+
+  bool _isDeviceWifiSsid(String ssid) {
+    final normalized = ssid.replaceAll('"', '').trim().toUpperCase();
+    return normalized.contains('SAILOGGER') || normalized.contains('SAILINK');
+  }
+
+  Future<bool> _isDeviceReachable() async {
+    try {
+      final socket =
+          await Socket.connect(host, port, timeout: const Duration(seconds: 2));
+      socket.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   void fetchCommands() async {
     setState(() {
@@ -127,15 +148,18 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Fetch the current Wi-Fi SSID
       String? ssid = await WiFiForIoTPlugin.getSSID();
+      final wifiIp = await NetworkInfo().getWifiIP();
       if (ssid != null && ssid.isNotEmpty) {
         print("Current Wi-Fi SSID: $ssid");
         setState(() {
           _ssid = ssid;
+          _wifiIp = (wifiIp == null || wifiIp.isEmpty) ? "-" : wifiIp;
         });
         // Return the SSID as a string
       } else {
         setState(() {
           _ssid = "No Wi-Fi Connected";
+          _wifiIp = (wifiIp == null || wifiIp.isEmpty) ? "-" : wifiIp;
         });
         print("No Wi-Fi connected.");
       }
@@ -143,6 +167,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       print("Error fetching SSID: $e");
       setState(() {
         _ssid = "Error";
+        _wifiIp = "-";
       });
     }
   }
@@ -690,6 +715,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
   @override
   void initState() {
+    _ssid = widget.initialSsid ?? "";
     checkFile();
     getCurrentWifiSSID();
     requestLocationPermission();
@@ -737,12 +763,29 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (context) => HomeScreen()));
+      },
+      child: Scaffold(
      appBar: AppBar(
   backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
+  leading: IconButton(
+    onPressed: () {
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (context) => HomeScreen()));
+    },
+    icon: Icon(
+      Icons.arrow_back,
+      color: slapp_color.primary,
+    ),
+  ),
   title: Text(
-    'Wi-Fi : $_ssid',
-    style: TextStyle(color: slapp_color.primary, fontSize: 16),
+    'Wi-Fi : $_ssid ($_wifiIp)',
+    style: TextStyle(color: slapp_color.primary, fontSize: 13),
   ),
   actions: [
     IconButton(
@@ -1338,14 +1381,13 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                     });
                                     getCurrentWifiSSID();
                                     await Future.delayed(Duration(seconds: 10));
-                                    if (_ssid
-                                            .toString()
-                                            .toUpperCase()
-                                            .contains('SAILOGGER') ||
-                                        _ssid
-                                            .toString()
-                                            .toUpperCase()
-                                            .contains('SAILINK')) {
+                                    final currentSsid =
+                                        (_ssid ?? '').replaceAll('"', '');
+                                    final isDeviceWifi =
+                                        _isDeviceWifiSsid(currentSsid);
+                                    final isReachable =
+                                        await _isDeviceReachable();
+                                    if (isDeviceWifi || isReachable) {
                                       setState(() {});
                                       await Future.delayed(
                                           Duration(seconds: 3));
@@ -1537,6 +1579,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       //             )
       //           ,
       //     ),),
+    ),
     );
   }
 }
