@@ -180,6 +180,12 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     required List<String> paths,
   }) async {
     try {
+      final totalPaths = paths.length;
+      var processedPaths = 0;
+      if (totalPaths > 0) {
+        _progressNotifier.value = "Cleanup old files: 0% (0/$totalPaths)";
+      }
+
       // Create an SSH client
       final client = SSHClient(
         await SSHSocket.connect(host, port),
@@ -206,6 +212,14 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
           }
         } else {
           print("$path does not exist.");
+        }
+
+        processedPaths++;
+        if (totalPaths > 0) {
+          final percentage =
+              ((processedPaths / totalPaths) * 100).toStringAsFixed(0);
+          _progressNotifier.value =
+              "Cleanup old files: $percentage% ($processedPaths/$totalPaths)";
         }
       }
 
@@ -280,10 +294,26 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
 
       try {
+        final totalCommands = _commands.length;
+        var executedCommands = 0;
+
         for (var command in _commands) {
           print('Running command: $command');
+          if (totalCommands > 0) {
+            final startPercentage =
+                ((executedCommands / totalCommands) * 100).toStringAsFixed(0);
+            _progressNotifier.value =
+                "Installing Update: $startPercentage% (${executedCommands}/$totalCommands)";
+          }
           var result = await client.run(command);
           print('Result: $result');
+          executedCommands++;
+          if (totalCommands > 0) {
+            final donePercentage =
+                ((executedCommands / totalCommands) * 100).toStringAsFixed(0);
+            _progressNotifier.value =
+                "Installing Update: $donePercentage% (${executedCommands}/$totalCommands)";
+          }
         }
       } catch (e) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
@@ -370,31 +400,38 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         onPasswordRequest: () => password,
       );
 
-      // Check the size of the zip file for progress calculation
-      final statCommand = "stat -c%s $remoteZipFilePath";
-      final statSession = await client.execute(statCommand);
-
-      final statResult = await statSession.stdout.join();
-      await statSession.done;
-
-      final fileSize =
-          int.tryParse(statResult.trim()) ?? 1; // Avoid division by zero
+      // Count files inside zip so progress percentage is based on extracted entries.
+      final countCommand = "unzip -Z -1 $remoteZipFilePath | wc -l";
+      final countSession = await client.execute(countCommand);
+      final countResult = await countSession.stdout.join();
+      await countSession.done;
+      final totalEntries = int.tryParse(countResult.trim()) ?? 0;
 
       // Run the unzip command
       final unzipCommand = "unzip -o $remoteZipFilePath -d $destinationPath";
       final unzipSession = await client.execute(unzipCommand);
-
-      int bytesProcessed = 0;
+      int extractedEntries = 0;
 
       // Track progress from the unzip output
       unzipSession.stdout.listen((data) {
         final output = String.fromCharCodes(data);
         print(output); // Log the output for debugging
-
-        // Example progress tracking logic
-        bytesProcessed += data.length;
-        final double progress = (bytesProcessed / fileSize) * 100;
-        onProgress("Unzipping progress: ${progress.toStringAsFixed(2)}%");
+        final lines = output.split('\n');
+        for (final line in lines) {
+          final trimmed = line.trimLeft();
+          if (trimmed.startsWith('inflating:') ||
+              trimmed.startsWith('extracting:') ||
+              trimmed.startsWith('creating:')) {
+            extractedEntries++;
+          }
+        }
+        if (totalEntries > 0) {
+          final progress =
+              (extractedEntries / totalEntries * 100).clamp(0, 100).toDouble();
+          onProgress("Unzipping progress: ${progress.toStringAsFixed(0)}%");
+        } else {
+          onProgress("Unzipping progress...");
+        }
       });
 
       // Wait for the unzip command to complete
@@ -461,19 +498,30 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         return;
       }
 
-      final fileContents = await file.readAsBytes();
+      final totalBytes = await file.length();
+      var uploadedBytes = 0;
 
-      // Convert file contents to a Stream<Uint8List>
-      final fileContentsStream = Stream<Uint8List>.fromIterable([fileContents]);
-      _progressNotifier.value =
-          "Copying File to SAILOGGER-DEVICE Please Wait...(10-25 minutes)";
+      _progressNotifier.value = totalBytes > 0
+          ? "Copying File to SAILOGGER-DEVICE: 0%"
+          : "Copying File to SAILOGGER-DEVICE Please Wait...(10-25 minutes)";
       // Upload the file to the server
       print('Uploading file to $remoteFilePath...');
       final remoteFile = await sftp.open(
         remoteFilePath,
         mode: SftpFileOpenMode.create | SftpFileOpenMode.write,
       );
-      await remoteFile.write(fileContentsStream);
+
+      final fileStream = file.openRead().map((chunk) {
+        uploadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          final percentage = ((uploadedBytes / totalBytes) * 100).toStringAsFixed(0);
+          _progressNotifier.value =
+              "Copying File to SAILOGGER-DEVICE: $percentage%";
+        }
+        return Uint8List.fromList(chunk);
+      });
+
+      await remoteFile.write(fileStream);
       await remoteFile.close();
       _progressNotifier.value = "File Succsessfully Copied to SAILOGGER-DEVICE";
       print('File uploaded successfully to $remoteFilePath');
@@ -555,16 +603,22 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   Future<void> copyFileToPublicDir(String fileName) async {
     final directory = await getApplicationDocumentsDirectory();
     final sourcePath = '${directory.path}/$fileName';
-    final targetPath = '/sdcard/Download/$fileName';
 
     try {
-      File(sourcePath).copySync(targetPath);
+      final file = File(sourcePath);
+      if (!await file.exists()) {
+        setState(() {
+          _filePath = '';
+        });
+        print('File does not exist at $sourcePath');
+        return;
+      }
       setState(() {
-        _filePath = targetPath;
+        _filePath = sourcePath;
       });
-      print('File copied to $targetPath');
+      print('Installer file is ready at $sourcePath');
     } catch (e) {
-      print('Error copying file: $e');
+      print('Error preparing local installer file: $e');
     }
   }
 
@@ -686,7 +740,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   }
 
   Future<void> checkFile() async {
-    String filePath = '/sdcard/Download/$down_filename';
+    final directory = await getApplicationDocumentsDirectory();
+    String filePath = '${directory.path}/$down_filename';
     await checkFileExists(filePath);
   }
 
@@ -719,7 +774,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     checkFile();
     getCurrentWifiSSID();
     requestLocationPermission();
-    requestStorage();
     fetchCommands();
     startMonitoringSSID();
     WakelockPlus.enable();
@@ -1404,7 +1458,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                           '/home/skyflix/SAILOGGER-NEO-7.19.zip',
                                           '/home/skyflix/update719.sh',
                                           '/home/skyflix/update_screen.py',
-                                          '/home/skyflix/update719.log',
+                                          // '/home/skyflix/update719.log',
                                         ],
                                       );
                                     } else {
@@ -1468,6 +1522,63 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                               )),
                         )
                       : Container())
+                  : Container(),
+              install_completed || install_satisfied
+                  ? Container(
+                      margin: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 20),
+                      child: ElevatedButton(
+                          style: ButtonStyle(
+                            shape: MaterialStateProperty.all<
+                                    RoundedRectangleBorder>(
+                                const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.zero,
+                            )),
+                            backgroundColor:
+                                MaterialStateProperty.resolveWith<Color>(
+                              (Set<MaterialState> states) {
+                                return slapp_color.fifthiary.withOpacity(0.9);
+                              },
+                            ),
+                            elevation:
+                                MaterialStateProperty.resolveWith<double>(
+                              (Set<MaterialState> states) {
+                                if (states.contains(MaterialState.disabled)) {
+                                  return 0;
+                                }
+                                return 0;
+                              },
+                            ),
+                          ),
+                          onPressed: () async {
+                            Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (context) => HomeScreen()));
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.rule_folder_outlined,
+                                  color: slapp_color.white,
+                                ),
+                                const SizedBox(
+                                  width: 10.0,
+                                ),
+                                Text(
+                                  "Device Check Menu".toUpperCase(),
+                                  style: const TextStyle(
+                                      color: slapp_color.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          )),
+                    )
                   : Container(),
               install_completed || install_satisfied
                   ? Container(
