@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
@@ -14,6 +15,8 @@ import 'package:wifi_iot/wifi_iot.dart';
 // import 'package:percent_indicator/circular_percent_indicator.dart';
 // import 'package:sailogger719/screens/ssh_check_.dart';
 
+enum SatCommReadiness { idle, switching, waiting, ready, failed }
+
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -25,8 +28,122 @@ class _HomeScreenState extends State<HomeScreen> {
   final String username = 'skyflix';
   final String password = 'byskyreach';
   bool _isCheckingVersion = false;
+  bool _isUpdatingSatComm = false;
+  SatCommReadiness _satCommReadiness = SatCommReadiness.idle;
+  String _satCommReadinessMessage = '';
+  Timer? _satCommReadinessTimer;
+  bool _isReadinessProbeRunning = false;
+  int _satCommReadinessSecondsLeft = 0;
   String? _ssid = "";
   bool _isDeviceConnected = false;
+  static const int _satCommReadinessTimeoutSeconds = 90;
+  static const int _satCommReadinessProbeIntervalSeconds = 3;
+
+  bool get _canRunDeviceCheck =>
+      !_isCheckingVersion &&
+      !_isUpdatingSatComm &&
+      (_satCommReadiness == SatCommReadiness.idle ||
+          _satCommReadiness == SatCommReadiness.ready);
+
+  void _setSatCommReadiness(SatCommReadiness state, {String? message}) {
+    if (!mounted) return;
+    setState(() {
+      _satCommReadiness = state;
+      if (message != null) _satCommReadinessMessage = message;
+    });
+  }
+
+  Future<bool> _probeSatCommReadiness() async {
+    SSHClient? client;
+    try {
+      final reachable = await _isDeviceReachable();
+      if (!reachable) return false;
+
+      client = SSHClient(
+        await SSHSocket.connect(host, port).timeout(const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      final echo = await _runSshCommand(
+        client,
+        'echo READY',
+        timeout: const Duration(seconds: 4),
+      );
+      if (!echo.toUpperCase().contains('READY')) return false;
+
+      await _runSshCommand(
+        client,
+        "curl -s --max-time 3 localhost/api/skychat/version",
+        timeout: const Duration(seconds: 5),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client?.close();
+    }
+  }
+
+  void _stopSatCommReadinessPolling() {
+    _satCommReadinessTimer?.cancel();
+    _satCommReadinessTimer = null;
+    _isReadinessProbeRunning = false;
+  }
+
+  Future<void> _startSatCommReadinessPolling({bool forceRestart = false}) async {
+    if (_satCommReadinessTimer != null && !forceRestart) return;
+    _stopSatCommReadinessPolling();
+    _satCommReadinessSecondsLeft = _satCommReadinessTimeoutSeconds;
+    _setSatCommReadiness(
+      SatCommReadiness.waiting,
+      message: 'Menunggu modem/service SAT-Comm siap...',
+    );
+
+    Future<void> tick() async {
+      if (!mounted || _isReadinessProbeRunning) return;
+      _isReadinessProbeRunning = true;
+      final isReady = await _probeSatCommReadiness();
+      _isReadinessProbeRunning = false;
+      if (!mounted) return;
+
+      if (isReady) {
+        _stopSatCommReadinessPolling();
+        _setSatCommReadiness(
+          SatCommReadiness.ready,
+          message: 'SAT-Comm ready. Device Check bisa dijalankan.',
+        );
+        setState(() {
+          _isDeviceConnected = true;
+        });
+        return;
+      }
+
+      _satCommReadinessSecondsLeft -= _satCommReadinessProbeIntervalSeconds;
+      if (_satCommReadinessSecondsLeft <= 0) {
+        _stopSatCommReadinessPolling();
+        _setSatCommReadiness(
+          SatCommReadiness.failed,
+          message:
+              'SAT-Comm belum siap setelah ${_satCommReadinessTimeoutSeconds}s. Tekan Coba Lagi.',
+        );
+        return;
+      }
+
+      _setSatCommReadiness(
+        SatCommReadiness.waiting,
+        message:
+            'Menunggu modem/service SAT-Comm siap... (${_satCommReadinessSecondsLeft}s)',
+      );
+    }
+
+    await tick();
+    if (!mounted || _satCommReadiness != SatCommReadiness.waiting) return;
+    _satCommReadinessTimer = Timer.periodic(
+      const Duration(seconds: _satCommReadinessProbeIntervalSeconds),
+      (_) => tick(),
+    );
+  }
 
   PackageInfo _packageInfo = PackageInfo(
     appName: 'Unknown',
@@ -44,12 +161,39 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<String> _runSshCommand(SSHClient client, String command) async {
-    final result = await client.run(command);
+  Future<String> _runSshCommand(
+    SSHClient client,
+    String command, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final result = await client.run(command).timeout(timeout);
     try {
       return utf8.decode(result, allowMalformed: true).trim();
     } catch (_) {
       return latin1.decode(result, allowInvalid: true).trim();
+    }
+  }
+
+  Future<bool> _isSshReady() async {
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port).timeout(
+          const Duration(seconds: 5),
+        ),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      await _runSshCommand(
+        client,
+        'echo READY',
+        timeout: const Duration(seconds: 4),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client?.close();
     }
   }
 
@@ -174,6 +318,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> checkSpecialVersionCondition() async {
     if (_isCheckingVersion) return;
+    if (_satCommReadiness == SatCommReadiness.switching ||
+        _satCommReadiness == SatCommReadiness.waiting) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            _satCommReadinessMessage.isEmpty
+                ? "SAT-Comm masih proses inisialisasi. Coba lagi sebentar."
+                : _satCommReadinessMessage,
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+      return;
+    }
+
+    if (_satCommReadiness == SatCommReadiness.failed) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            "SAT-Comm belum siap. Tekan Coba Lagi dulu.",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isCheckingVersion = true;
     });
@@ -187,10 +364,38 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    final isSshReady = await _isSshReady();
+    if (!isSshReady) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            backgroundColor: slapp_color.error,
+            content: Text(
+              "Device belum siap (SSH belum tersambung). Coba lagi beberapa detik.",
+              style: TextStyle(color: slapp_color.white),
+            ),
+            showCloseIcon: true,
+            closeIconColor: slapp_color.white,
+          ),
+        );
+        setState(() {
+          _isCheckingVersion = false;
+          _isDeviceConnected = false;
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isDeviceConnected = true;
+      });
+    }
+
     SSHClient? client;
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port),
+        await SSHSocket.connect(host, port).timeout(const Duration(seconds: 6)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -210,8 +415,11 @@ class _HomeScreenState extends State<HomeScreen> {
               client, 'cat /PyDashboard/data/view_version.json')
           : "-";
 
-      final iotRunRaw =
-          await _runSshCommand(client, '/var/Python/SKYREACH-IoT.RUN');
+      final iotRunRaw = await _runSshCommand(
+        client,
+        '/var/Python/SKYREACH-IoT.RUN',
+        timeout: const Duration(seconds: 8),
+      );
       final hasIotRunVersion = iotRunRaw.contains('VERSI : 1.0.1');
       final isReader825 = readerRaw.trim() == '8.2.5';
       final logsRaw = await _runSshCommand(client, 'ls -ahl /var/Python/log/ || true');
@@ -225,6 +433,8 @@ class _HomeScreenState extends State<HomeScreen> {
           isSpecial825A ? '8.2.5-A' : _extractVersion(readerRaw);
       final versionMarker =
           isSpecial825A ? '8.2.5-A' : _extractVersion(readerRaw);
+
+      final satCommRaw = await _runSshCommand(client, 'cat /var/Python/Configs/Comm-NET.SKY');
 
       if (!mounted) return;
       showDialog(
@@ -251,6 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 if (hasDisplay)
                   Text('Display Version: v${_extractVersion(displayRaw)}'),
+                Text('SAT-Comm: $satCommRaw'),
                 SizedBox(height: 14),
                 // Text(
                 //   'Version Marker: $versionMarker',
@@ -274,11 +485,17 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        _isDeviceConnected = false;
+      });
+      final errorMessage = e is TimeoutException
+          ? "Device check timeout. Coba lagi beberapa detik."
+          : "Gagal check version: $e";
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           backgroundColor: slapp_color.error,
           content: Text(
-            "Gagal check version: $e",
+            errorMessage,
             style: TextStyle(color: slapp_color.white),
           ),
           showCloseIcon: true,
@@ -295,12 +512,198 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showSatCommSelector() async {
+    if (_isUpdatingSatComm) return;
+    setState(() {
+      _isUpdatingSatComm = true;
+    });
+
+    final isConnected = await _ensureConnectedToDeviceWifi();
+    if (!isConnected) {
+      if (mounted) {
+        setState(() {
+          _isUpdatingSatComm = false;
+        });
+      }
+      return;
+    }
+
+    String? currentMode;
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      final satCommRaw =
+          await _runSshCommand(client, 'cat /var/Python/Configs/Comm-NET.SKY');
+      final normalized = satCommRaw.trim().toLowerCase();
+      if (normalized.contains('thuraya')) {
+        currentMode = 'Thuraya';
+      } else if (normalized.contains('iridium')) {
+        currentMode = 'Iridium';
+      }
+    } catch (_) {
+      currentMode = null;
+    } finally {
+      client?.close();
+      if (mounted) {
+        setState(() {
+          _isUpdatingSatComm = false;
+        });
+      }
+    }
+
+    if (!mounted) return;
+
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        String selectedMode = currentMode ?? 'Thuraya';
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text('Pilih SAT-Comm'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<String>(
+                  value: 'Thuraya',
+                  groupValue: selectedMode,
+                  title: Text('Thuraya'),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedMode = value);
+                  },
+                ),
+                RadioListTile<String>(
+                  value: 'Iridium',
+                  groupValue: selectedMode,
+                  title: Text('Iridium'),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedMode = value);
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('Batal'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(selectedMode),
+                child: Text('Simpan'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selected == null) return;
+    if (currentMode == selected) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('SAT-Comm sudah pada mode $selected'),
+        ),
+      );
+      return;
+    }
+    await _updateSatComm(selected);
+  }
+
+  Future<void> _updateSatComm(String mode) async {
+    if (_isUpdatingSatComm) return;
+    setState(() {
+      _isUpdatingSatComm = true;
+    });
+
+    final isConnected = await _ensureConnectedToDeviceWifi();
+    if (!isConnected) {
+      if (mounted) {
+        setState(() {
+          _isUpdatingSatComm = false;
+        });
+      }
+      return;
+    }
+
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      final command = '''
+        echo "$mode" > /var/Python/Configs/Comm-NET.SKY
+        pkill -9 -f THEREACH || true
+        pkill -9 -f SAILINK || true
+        pkill -9 -f SAILOGGER || true
+        /var/Python/SKYREACH-IoT.RUN
+        ''';
+      _setSatCommReadiness(
+        SatCommReadiness.switching,
+        message: 'Menerapkan SAT-Comm $mode...',
+      );
+      await _runSshCommand(client, command);
+
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.success,
+          content: Text(
+            "SAT-Comm berhasil diubah ke $mode. Menunggu device siap...",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+      await _startSatCommReadinessPolling(forceRestart: true);
+    } catch (e) {
+      if (!mounted) return;
+      _stopSatCommReadinessPolling();
+      _setSatCommReadiness(
+        SatCommReadiness.failed,
+        message: "Gagal ubah SAT-Comm: $e",
+      );
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            "Gagal ubah SAT-Comm: $e",
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+    } finally {
+      client?.close();
+      if (mounted) {
+        setState(() {
+          _isUpdatingSatComm = false;
+        });
+      }
+    }
+  }
+
   @override
   void initState() {
     _initPackageInfo();
     Permission.location.request();
     getCurrentWifiSSID();
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    _stopSatCommReadinessPolling();
+    super.dispose();
   }
 
   @override
@@ -446,7 +849,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       )),
                       backgroundColor: MaterialStateProperty.resolveWith<Color>(
                         (Set<MaterialState> states) {
-                          if (_isCheckingVersion ||
+                          if (!_canRunDeviceCheck ||
                               states.contains(MaterialState.disabled)) {
                             return slapp_color.sixtiary;
                           }
@@ -462,7 +865,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                     ),
-                    onPressed: _isCheckingVersion
+                    onPressed: !_canRunDeviceCheck
                         ? null
                         : () async {
                             await checkSpecialVersionCondition();
@@ -499,6 +902,131 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )),
               ),
+              Container(
+                margin:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                child: ElevatedButton(
+                    style: ButtonStyle(
+                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                          const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      )),
+                      backgroundColor: MaterialStateProperty.resolveWith<Color>(
+                        (Set<MaterialState> states) {
+                          if (_isUpdatingSatComm ||
+                              states.contains(MaterialState.disabled)) {
+                            return slapp_color.sixtiary;
+                          }
+                          return slapp_color.primary;
+                        },
+                      ),
+                      elevation: MaterialStateProperty.resolveWith<double>(
+                        (Set<MaterialState> states) {
+                          if (states.contains(MaterialState.disabled)) {
+                            return 0;
+                          }
+                          return 0;
+                        },
+                      ),
+                    ),
+                    onPressed: _isUpdatingSatComm
+                        ? null
+                        : () async {
+                            await _showSatCommSelector();
+                          },
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _isUpdatingSatComm
+                              ? SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: slapp_color.white,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.satellite_alt_outlined,
+                                  color: slapp_color.white,
+                                ),
+                          const SizedBox(
+                            width: 10.0,
+                          ),
+                          Text(
+                            "SAT-Comm".toUpperCase(),
+                            style: const TextStyle(
+                                color: slapp_color.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    )),
+              ),
+              if (_satCommReadiness != SatCommReadiness.idle)
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 20),
+                  padding: const EdgeInsets.all(12),
+                  color: slapp_color.fifthiary.withOpacity(0.15),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _satCommReadiness == SatCommReadiness.ready
+                            ? Icons.check_circle_outline
+                            : (_satCommReadiness == SatCommReadiness.failed
+                                ? Icons.error_outline
+                                : Icons.sync),
+                        color: _satCommReadiness == SatCommReadiness.ready
+                            ? slapp_color.success
+                            : (_satCommReadiness == SatCommReadiness.failed
+                                ? slapp_color.error
+                                : slapp_color.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _satCommReadinessMessage,
+                          style: TextStyle(color: slapp_color.black_text),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_satCommReadiness == SatCommReadiness.failed)
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: slapp_color.primary,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: _isUpdatingSatComm
+                        ? null
+                        : () async {
+                            await _startSatCommReadinessPolling(
+                              forceRestart: true,
+                            );
+                          },
+                    child: const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: Text(
+                        'COBA LAGI CEK KESIAPAN',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
