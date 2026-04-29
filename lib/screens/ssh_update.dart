@@ -49,10 +49,12 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool is_transfer = false;
   bool is_checkwifi = true;
   bool is_unzip = false;
+  bool is_deleting_installer = false;
   bool error_download = false;
   bool install_completed = false;
   bool is_error_cmd = false;
   double status_download = 0.0;
+  double status_delete = 0.0;
   bool install_satisfied = false;
   List<String> _commands = [];
   String _filePath = '';
@@ -71,6 +73,10 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   bool _isDeviceWifiSsid(String ssid) {
     final normalized = ssid.replaceAll('"', '').trim().toUpperCase();
     return normalized.contains('SAILOGGER') || normalized.contains('SAILINK');
+  }
+
+  String _normalizeSsid(String? ssid) {
+    return (ssid ?? '').replaceAll('"', '').trim().toUpperCase();
   }
 
   Future<bool> _isDeviceReachable() async {
@@ -655,14 +661,42 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   Future<void> removeFile(filepath) async {
     final file = File(filepath);
     try {
+      setState(() {
+        is_deleting_installer = true;
+        status_delete = 0.0;
+      });
+      _progressNotifier.value = "Deleting installer file: 0%";
+      await Future.delayed(const Duration(milliseconds: 120));
+      setState(() {
+        status_delete = 20.0;
+      });
+      _progressNotifier.value = "Deleting installer file: 20%";
       if (await file.exists()) {
+        setState(() {
+          status_delete = 60.0;
+        });
+        _progressNotifier.value = "Deleting installer file: 60%";
         await file.delete();
         print('File deleted successfully');
+        setState(() {
+          status_delete = 100.0;
+        });
+        _progressNotifier.value = "Deleting installer file: 100%";
       } else {
         print('File does not exist');
+        setState(() {
+          status_delete = 100.0;
+        });
+        _progressNotifier.value = "Deleting installer file: 100% (file not found)";
       }
     } catch (e) {
       print('Error deleting file: $e');
+      _progressNotifier.value = "Failed deleting installer file";
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 500));
+      setState(() {
+        is_deleting_installer = false;
+      });
     }
   }
 
@@ -783,11 +817,22 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   void startMonitoringSSID() {
     ssidCheckTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
       final newSSID = await WiFiForIoTPlugin.getSSID();
+      final currentNormalized = _normalizeSsid(_ssid);
+      final newNormalized = _normalizeSsid(newSSID);
+
       if (newSSID != _ssid) {
         setState(() {
           _ssid = newSSID;
         });
-        if (is_install) {
+      }
+
+      // iOS can report transient/unknown SSID values even while still connected.
+      // Only fail install flow when Wi-Fi is truly not device hotspot and device
+      // host is unreachable.
+      if (is_install && newNormalized != currentNormalized) {
+        final looksLikeDeviceWifi = _isDeviceWifiSsid(newNormalized);
+        final isReachable = await _isDeviceReachable();
+        if (!looksLikeDeviceWifi && !isReachable) {
           onSSIDChange(newSSID);
         }
       }
@@ -1012,7 +1057,14 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                           height: 150.0,
                                           width: 150.0,
                                         )
-                                      : is_transfer
+                                      : is_deleting_installer
+                                          ? Image.asset(
+                                              'assets/images/upload.gif',
+                                              fit: BoxFit.fill,
+                                              height: 150.0,
+                                              width: 150.0,
+                                            )
+                                          : is_transfer
                                           ? Image.asset(
                                               'assets/images/upload_static.png',
                                               fit: BoxFit.fill,
@@ -1162,7 +1214,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     )
                   : Container(),
-              is_install && !install_satisfied
+              (is_install || is_deleting_installer) && !install_satisfied
                   ? Padding(
                       padding:
                           EdgeInsets.only(bottom: 20.0, left: 20, right: 20),
@@ -1183,7 +1235,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                       ),
                     )
                   : Container(),
-              is_install
+              (is_install || is_deleting_installer)
                   ? Padding(
                       padding:
                           EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
