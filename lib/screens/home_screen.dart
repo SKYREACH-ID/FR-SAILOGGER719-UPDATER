@@ -11,6 +11,7 @@ import 'package:sailogger719/constant/colors.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/screens/ssh_update.dart';
+import 'package:sailogger719/screens/diagnostic_screen.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 // import 'package:percent_indicator/circular_percent_indicator.dart';
 // import 'package:sailogger719/screens/ssh_check_.dart';
@@ -829,6 +830,57 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           Text(
                             "Start Update".toUpperCase(),
+                            style: const TextStyle(
+                                color: slapp_color.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    )),
+              ),
+              Container(
+                margin:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                child: ElevatedButton(
+                    style: ButtonStyle(
+                      shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                          const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      )),
+                      backgroundColor: MaterialStateProperty.resolveWith<Color>(
+                        (Set<MaterialState> states) {
+                          return slapp_color.primary;
+                        },
+                      ),
+                      elevation: MaterialStateProperty.resolveWith<double>(
+                        (Set<MaterialState> states) {
+                          return 0;
+                        },
+                      ),
+                    ),
+                    onPressed: () async {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const DiagnosticScreen(),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.analytics_outlined,
+                            color: slapp_color.white,
+                          ),
+                          const SizedBox(
+                            width: 10.0,
+                          ),
+                          Text(
+                            "Diagnostic".toUpperCase(),
                             style: const TextStyle(
                                 color: slapp_color.white,
                                 fontSize: 16,
