@@ -33,6 +33,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   final Map<String, String> _results = {};
   final List<String> _resultOrder = const [
     'OS DateTime',
+    'Uptime',
     'FailedSMS Top10',
     'FailedSMS Bottom10',
     'FailedSMS Count',
@@ -47,7 +48,9 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     'GPS Parsed',
     'SAT Mode',
     'SAT Status',
+    'iTech.log',
     'Date Update',
+    'THEREACH Process',
   ];
 
   bool _isDeviceWifiSsid(String ssid) {
@@ -188,6 +191,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
 
       final steps = <Map<String, String>>[
         {'title': 'OS DateTime', 'cmd': 'date'},
+        {'title': 'Uptime', 'cmd': 'uptime'},
       ];
 
       if (!quick) {
@@ -258,6 +262,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         }
         _results['SAT Status Summary'] =
             _parseSatStatusFromJson(_results['SAT Status'] ?? '');
+        _results['iTech.log'] = await _run(client, 'tail -n 50 /var/Python/iTech.log');
+        _results['THEREACH Process'] = await _run(client, 'ps -ax | grep THEREACH');
       }
 
       setState(() {
