@@ -208,6 +208,9 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           {'title': 'Exhaust2', 'cmd': 'cat /var/Python/Status/Exhaust2.json'},
           {'title': 'GPS Raw', 'cmd': 'cat /var/Python/GPS/SAILINK.json'},
           {'title': 'SAT Mode', 'cmd': 'cat /var/Python/Configs/Comm-NET.SKY'},
+          {'title': 'SAT Status', 'cmd': '__SAT_STATUS__'},
+          {'title': 'iTech.log', 'cmd': 'tail -n 50 /var/Python/iTech.log'},
+          {'title': 'THEREACH Process', 'cmd': 'ps -ax | grep THEREACH'},
         ]);
       }
 
@@ -219,7 +222,19 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           _activeStep = 'Step ${i + 1}/${steps.length}: $title';
           _progress = ((i) / steps.length) * 100;
         });
-        final out = await _run(client, cmd);
+        String out;
+        if (cmd == '__SAT_STATUS__') {
+          final satMode = (_results['SAT Mode'] ?? '').toLowerCase();
+          if (satMode.contains('iridium')) {
+            out = await _run(client, 'cat /var/Python/Status/Iridium.json');
+          } else if (satMode.contains('thuraya')) {
+            out = await _run(client, 'cat /var/Python/Status/Thuraya.json');
+          } else {
+            out = 'Unknown SAT mode';
+          }
+        } else {
+          out = await _run(client, cmd);
+        }
         _results[title] = out.isEmpty ? '(empty)' : out;
 
         if (title == 'RPM1' ||
@@ -252,18 +267,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       }
 
       if (!quick) {
-        final satMode = (_results['SAT Mode'] ?? '').toLowerCase();
-        if (satMode.contains('iridium')) {
-          _results['SAT Status'] = await _run(client, 'cat /var/Python/Status/Iridium.json');
-        } else if (satMode.contains('thuraya')) {
-          _results['SAT Status'] = await _run(client, 'cat /var/Python/Status/Thuraya.json');
-        } else {
-          _results['SAT Status'] = 'Unknown SAT mode';
-        }
         _results['SAT Status Summary'] =
             _parseSatStatusFromJson(_results['SAT Status'] ?? '');
-        _results['iTech.log'] = await _run(client, 'tail -n 50 /var/Python/iTech.log');
-        _results['THEREACH Process'] = await _run(client, 'ps -ax | grep THEREACH');
       }
 
       setState(() {
