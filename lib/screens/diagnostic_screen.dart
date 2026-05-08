@@ -29,6 +29,9 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   String _ssid = '-';
   String _wifiIp = '-';
   bool _isWifiConnected = false;
+  bool _isRunningServiceAction = false;
+  bool _isKillingSailink = false;
+  bool _isStartingSailink = false;
 
   final Map<String, String> _results = {};
   final List<String> _resultOrder = const [
@@ -51,6 +54,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     'iTech.log',
     'Date Update',
     'THEREACH Process',
+    'IRI-MSG.DAT',
   ];
 
   bool _isDeviceWifiSsid(String ssid) {
@@ -108,6 +112,198 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     } catch (_) {
       return latin1.decode(bytes, allowInvalid: true).trim();
     }
+  }
+
+  Future<void> _runSailinkAction({
+    required String command,
+    required String successMessage,
+    bool isKillAction = false,
+    bool isStartAction = false,
+  }) async {
+    if (_isRunning || _isRunningServiceAction) return;
+    setState(() {
+      _isRunningServiceAction = true;
+      _isKillingSailink = isKillAction;
+      _isStartingSailink = isStartAction;
+    });
+    final actionLabel = isKillAction ? 'Stopping SAILINK...' : 'Starting SAILINK...';
+    if (mounted) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: slapp_color.white,
+          content: Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: slapp_color.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  actionLabel,
+                  style: TextStyle(color: slapp_color.black_text),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      await _run(client, command);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(successMessage)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Service action failed: $e')),
+      );
+    } finally {
+      client?.close();
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (!mounted) return;
+      setState(() {
+        _isRunningServiceAction = false;
+        _isKillingSailink = false;
+        _isStartingSailink = false;
+      });
+    }
+  }
+
+  Future<void> _confirmAndKillSailink() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Stop SAILINK'),
+        content: const Text('Force stop SAILINK process now?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _runSailinkAction(
+      command: "pkill -9 -f SAILINK || true",
+      successMessage: 'SAILINK process stopped.',
+      isKillAction: true,
+    );
+  }
+
+  Future<void> _showSailinkControlModal() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: slapp_color.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: slapp_color.fifthiary.withOpacity(0.08),
+            border: Border(
+              top: BorderSide(color: slapp_color.fifthiary.withOpacity(0.4)),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SAILINK Control',
+                style: TextStyle(
+                  color: slapp_color.black_text,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: (_isRunning || _isRunningServiceAction)
+                          ? null
+                          : () => _runSailinkAction(
+                                command:
+                                    'sleep 2 && /var/Python/SKYREACH-GL-IoT-GINTLIVE.RUN',
+                                successMessage: 'Start SAILINK command sent.',
+                                isStartAction: true,
+                              ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: slapp_color.success,
+                        foregroundColor: slapp_color.white,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
+                      ),
+                      child: _isStartingSailink
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: slapp_color.black_text,
+                              ),
+                            )
+                          : const Text('Start SAILINK'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: (_isRunning || _isRunningServiceAction)
+                          ? null
+                          : _confirmAndKillSailink,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: slapp_color.error,
+                        foregroundColor: slapp_color.white,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
+                      ),
+                      child: _isKillingSailink
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: slapp_color.black_text,
+                              ),
+                            )
+                          : const Text('Stop SAILINK'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _parseConnectionStatusFromJson(String raw) {
@@ -211,6 +407,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           {'title': 'SAT Status', 'cmd': '__SAT_STATUS__'},
           {'title': 'iTech.log', 'cmd': 'tail -n 50 /var/Python/iTech.log'},
           {'title': 'THEREACH Process', 'cmd': 'ps -ax | grep THEREACH'},
+          {'title': 'IRI-MSG.DAT', 'cmd': 'cat /var/Python/log/IRI-MSG.DAT'},
         ]);
       }
 
@@ -438,6 +635,13 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           'Device Diagnostic',
           style: TextStyle(color: slapp_color.primary),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'SAILINK Control',
+            onPressed: _showSailinkControlModal,
+            icon: Icon(Icons.settings_remote, color: slapp_color.primary),
+          ),
+        ],
         iconTheme: IconThemeData(color: slapp_color.primary),
         backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
       ),
@@ -571,7 +775,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                     onPressed: _isRunning ? null : _showSetDateDialog,
                     child: const Text('Set OS Date & Time'),
                   ),
-                )
+                ),
               ],
             ),
           ),
