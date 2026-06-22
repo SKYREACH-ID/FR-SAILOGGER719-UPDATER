@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:dartssh2/dartssh2.dart';
-import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:sailogger719/models/update_package.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -30,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final String password = 'byskyreach';
   bool _isCheckingVersion = false;
   bool _isUpdatingSatComm = false;
+  bool _isLoadingUpdateOptions = false;
   SatCommReadiness _satCommReadiness = SatCommReadiness.idle;
   String _satCommReadinessMessage = '';
   Timer? _satCommReadinessTimer;
@@ -39,6 +39,152 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isDeviceConnected = false;
   static const int _satCommReadinessTimeoutSeconds = 90;
   static const int _satCommReadinessProbeIntervalSeconds = 3;
+
+  Future<List<UpdatePackage>> _fetchUpdatePackages() async {
+    final response = await http.get(
+      Uri.parse(
+          'https://navigatorplus.sailink.id/api/sailogger/device/version'),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load update sources: ${response.statusCode}');
+    }
+
+    final jsonData = jsonDecode(response.body);
+    if (jsonData is! List) return const [];
+
+    for (final item in jsonData) {
+      if (item is! Map) continue;
+      final normalizedItem = Map<String, dynamic>.from(item);
+      final name = (normalizedItem['name'] ?? '').toString().toUpperCase();
+      if (!name.contains('SAILOGGER-NEO')) continue;
+
+      final sources = normalizedItem['sources'];
+      if (sources is! List) return const [];
+
+      final packages = sources
+          .whereType<Map>()
+          .map((source) =>
+              UpdatePackage.fromJson(Map<String, dynamic>.from(source)))
+          .where((source) => source.file.isNotEmpty)
+          .toList();
+
+      packages.sort(UpdatePackage.compareByVersionDesc);
+
+      return packages;
+    }
+
+    return const [];
+  }
+
+  Future<void> _showUpdateVersionPicker() async {
+    if (_isLoadingUpdateOptions) return;
+    setState(() {
+      _isLoadingUpdateOptions = true;
+    });
+
+    List<UpdatePackage> packages;
+    try {
+      packages = await _fetchUpdatePackages();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingUpdateOptions = false;
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            'Failed to load update list: $e',
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingUpdateOptions = false;
+      });
+    }
+    if (!mounted) return;
+    if (packages.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          backgroundColor: slapp_color.error,
+          content: Text(
+            'No update packages available.',
+            style: TextStyle(color: slapp_color.white),
+          ),
+          showCloseIcon: true,
+          closeIconColor: slapp_color.white,
+        ),
+      );
+      return;
+    }
+
+    final selectedPackage = await showModalBottomSheet<UpdatePackage>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final maxHeight = MediaQuery.of(context).size.height * 0.7;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: const Text(
+                    'Choose update version',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '${packages.length} versions available. Choose the package to install on the device.',
+                  ),
+                ),
+                const Divider(height: 1),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: packages.length,
+                    itemBuilder: (context, index) {
+                      final updatePackage = packages[index];
+                      return ListTile(
+                        leading: const Icon(Icons.system_update_alt),
+                        title: Text(updatePackage.label),
+                        subtitle: Text(updatePackage.subtitle),
+                        onTap: () {
+                          Navigator.pop(context, updatePackage);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedPackage == null) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SSHFileTransferScreen(
+          initialSsid: _ssid,
+          updatePackage: selectedPackage,
+        ),
+      ),
+    );
+  }
 
   bool get _canRunDeviceCheck =>
       !_isCheckingVersion &&
@@ -92,7 +238,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _isReadinessProbeRunning = false;
   }
 
-  Future<void> _startSatCommReadinessPolling({bool forceRestart = false}) async {
+  Future<void> _startSatCommReadinessPolling(
+      {bool forceRestart = false}) async {
     if (_satCommReadinessTimer != null && !forceRestart) return;
     _stopSatCommReadinessPolling();
     _satCommReadinessSecondsLeft = _satCommReadinessTimeoutSeconds;
@@ -269,7 +416,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
   Future<bool> _ensureConnectedToDeviceWifi() async {
     String lastSsid = '';
     for (var i = 0; i < 3; i++) {
@@ -289,8 +435,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      final socket = await Socket.connect(host, port,
-          timeout: const Duration(seconds: 2));
+      final socket =
+          await Socket.connect(host, port, timeout: const Duration(seconds: 2));
       socket.destroy();
       if (mounted) {
         setState(() {
@@ -423,7 +569,8 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       final hasIotRunVersion = iotRunRaw.contains('VERSI : 1.0.1');
       final isReader825 = readerRaw.trim() == '8.2.5';
-      final logsRaw = await _runSshCommand(client, 'ls -ahl /var/Python/log/ || true');
+      final logsRaw =
+          await _runSshCommand(client, 'ls -ahl /var/Python/log/ || true');
       final hasARStatusReport = logsRaw.contains('ARStatusReport.json');
       final hasMessageReports = logsRaw.contains('MessageReports.log');
       final isSpecial825A = hasIotRunVersion &&
@@ -432,10 +579,9 @@ class _HomeScreenState extends State<HomeScreen> {
           hasMessageReports;
       final readerVersionDisplay =
           isSpecial825A ? '8.2.5-A' : _extractVersion(readerRaw);
-      final versionMarker =
-          isSpecial825A ? '8.2.5-A' : _extractVersion(readerRaw);
 
-      final satCommRaw = await _runSshCommand(client, 'cat /var/Python/Configs/Comm-NET.SKY');
+      final satCommRaw =
+          await _runSshCommand(client, 'cat /var/Python/Configs/Comm-NET.SKY');
 
       if (!mounted) return;
       showDialog(
@@ -451,8 +597,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     'Status Layar: ${hasDisplay ? "Ada Layar" : (noDisplay ? "Tanpa Layar" : "Tidak Diketahui ($normalizedRunlevel)")}'),
                 SizedBox(height: 10),
                 // Text('Engine Version: '),
-                Text('System Version: v${_extractVersion(systemRaw)} (${_extractVersion(engineRaw)})'),
-                Text('Reader Version: v$readerVersionDisplay', 
+                Text(
+                    'System Version: v${_extractVersion(systemRaw)} (${_extractVersion(engineRaw)})'),
+                Text(
+                  'Reader Version: v$readerVersionDisplay',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: isSpecial825A
@@ -723,8 +871,9 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(
                 _isDeviceConnected ? 'CONNECTED' : 'NOT CONNECTED',
                 style: TextStyle(
-                  color:
-                      _isDeviceConnected ? slapp_color.success : slapp_color.error,
+                  color: _isDeviceConnected
+                      ? slapp_color.success
+                      : slapp_color.error,
                   fontWeight: FontWeight.bold,
                   fontSize: 9,
                 ),
@@ -766,7 +915,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             text: 'Welcome to ',
                             style: TextStyle(color: slapp_color.black_text)),
                         TextSpan(
-                            text: 'SAILOGGER 7.19 - UPDATER, ',
+                            text: 'SAILOGGER UPDATER, ',
                             style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: slapp_color.primary)),
@@ -810,26 +959,34 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     onPressed: () async {
-                      Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  SSHFileTransferScreen(initialSsid: _ssid)));
+                      await _showUpdateVersionPicker();
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.download,
-                            color: slapp_color.white,
-                          ),
+                          _isLoadingUpdateOptions
+                              ? SizedBox(
+                                  height: 20.0,
+                                  width: 20.0,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: slapp_color.white,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.download,
+                                  color: slapp_color.white,
+                                ),
                           const SizedBox(
                             width: 10.0,
                           ),
                           Text(
-                            "Start Update".toUpperCase(),
+                            (_isLoadingUpdateOptions
+                                    ? "Loading Update..."
+                                    : "Start Update")
+                                .toUpperCase(),
                             style: const TextStyle(
                                 color: slapp_color.white,
                                 fontSize: 16,

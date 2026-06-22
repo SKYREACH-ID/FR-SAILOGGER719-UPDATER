@@ -1,17 +1,15 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dartssh2/dartssh2.dart';
-import 'package:flutter/services.dart';
+import 'package:sailogger719/models/update_package.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:http/http.dart' as http;
 import 'package:sailogger719/screens/home_screen.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -32,7 +30,13 @@ class SSHCommandExecutor {
 
 class SSHFileTransferScreen extends StatefulWidget {
   final String? initialSsid;
-  const SSHFileTransferScreen({super.key, this.initialSsid});
+  final UpdatePackage updatePackage;
+
+  const SSHFileTransferScreen({
+    super.key,
+    this.initialSsid,
+    this.updatePackage = const UpdatePackage.fallback719(),
+  });
 
   @override
   _SSHFileTransferScreenState createState() => _SSHFileTransferScreenState();
@@ -62,13 +66,27 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   String _wifiIp = "-";
   Timer? ssidCheckTimer;
   String _url = "https://navigatorplus.sailink.id/";
-  String down_link = 'sources/SAILOGGER-NEO-7.19.zip';
-  String down_filename = 'SAILOGGER-NEO-7.19.zip';
-  String _filePath_server = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
-  String remoteZipFile = '/home/skyflix/SAILOGGER-NEO-7.19.zip';
+  late final UpdatePackage _selectedPackage;
+  late String down_link;
+  late String down_filename;
+  late String _filePath_server;
+  late String remoteZipFile;
   String destinationzipPath = '/home/skyflix/';
   String _versionPath = '/var/Python/Version';
   final ValueNotifier<String> _progressNotifier = ValueNotifier<String>("");
+
+  String get _selectedVersionLabel => _selectedPackage.label;
+
+  List<String> get _cleanupPaths => [
+        '/home/skyflix/html',
+        '/home/skyflix/PyDashboard',
+        '/home/skyflix/Python',
+        '/home/skyflix/system-download',
+        '/home/skyflix/SAILOGGER-NEO-7.19.zip',
+        '/home/skyflix/SAILOGGER-NEO-LATEST.zip',
+        '/home/skyflix/update719.sh',
+        '/home/skyflix/update_screen.py',
+      ];
 
   bool _isDeviceWifiSsid(String ssid) {
     final normalized = ssid.replaceAll('"', '').trim().toUpperCase();
@@ -90,40 +108,13 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-  void fetchCommands() async {
-    setState(() {
-      _commands.clear();
-    });
-    try {
-      // Make the GET request
-      final response =
-          await http.get(Uri.parse(_url + 'api/sailogger/device/version'));
-
-      // Check if the request was successful
-      if (response.statusCode == 200) {
-        // Decode the JSON data
-        final List<dynamic> jsonData = jsonDecode(response.body);
-
-        for (var item in jsonData) {
-          if (item['sources'] != null &&
-              item['name'].toString().toUpperCase().contains('SAILOGGER-NEO')) {
-            for (var source in item['sources']) {
-              if (source['commands'] != null) {
-                setState(() {
-                  _commands.addAll(List<String>.from(source['commands']));
-                });
-              }
-            }
-          }
-        }
-
-        print('Install Commands: $_commands');
-      } else {
-        throw Exception('Failed to load data: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Error: $e');
+  void loadSelectedPackage() {
+    _commands = List<String>.from(_selectedPackage.commands);
+    if (mounted) {
+      setState(() {});
     }
+    print('Selected Update File: $down_filename');
+    print('Install Commands: $_commands');
   }
 
   void onUploadError() {
@@ -238,7 +229,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     }
   }
 
-
   Future<void> refreshGps() async {
     try {
       final client = SSHClient(
@@ -253,7 +243,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         print('Running command: $command');
         var result = await client.run(command);
         print('Result: $result');
-        
       } catch (e) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
           backgroundColor: slapp_color.error,
@@ -520,7 +509,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       final fileStream = file.openRead().map((chunk) {
         uploadedBytes += chunk.length;
         if (totalBytes > 0) {
-          final percentage = ((uploadedBytes / totalBytes) * 100).toStringAsFixed(0);
+          final percentage =
+              ((uploadedBytes / totalBytes) * 100).toStringAsFixed(0);
           _progressNotifier.value =
               "Copying File to SAILOGGER-DEVICE: $percentage%";
         }
@@ -571,11 +561,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
       // Read file content
       final file = await sftp.open(_versionPath, mode: SftpFileOpenMode.read);
-      final content = await file.readBytes();
+      await file.readBytes();
       await file.close();
-
-      // Convert content to string
-      final fileContent = utf8.decode(content);
 
       // Compare file content with the given string
       // if (fileContent.contains('7.19')) {
@@ -687,7 +674,8 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         setState(() {
           status_delete = 100.0;
         });
-        _progressNotifier.value = "Deleting installer file: 100% (file not found)";
+        _progressNotifier.value =
+            "Deleting installer file: 100% (file not found)";
       }
     } catch (e) {
       print('Error deleting file: $e');
@@ -705,7 +693,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       is_download = true;
       error_download = false;
     });
-    fetchCommands();
+    loadSelectedPackage();
     try {
       final directory = await getApplicationDocumentsDirectory();
       final filePath = '${directory.path}/$filename';
@@ -727,7 +715,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
-      fetchCommands();
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         backgroundColor: slapp_color.success,
         content: Text(
@@ -804,11 +791,16 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
 
   @override
   void initState() {
+    _selectedPackage = widget.updatePackage;
+    down_link = _selectedPackage.downloadPath;
+    down_filename = _selectedPackage.fileName;
+    _filePath_server = _selectedPackage.remoteZipPath;
+    remoteZipFile = _selectedPackage.remoteZipPath;
     _ssid = widget.initialSsid ?? "";
     checkFile();
     getCurrentWifiSSID();
     requestLocationPermission();
-    fetchCommands();
+    loadSelectedPackage();
     startMonitoringSSID();
     WakelockPlus.enable();
     super.initState();
@@ -870,608 +862,468 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
             context, MaterialPageRoute(builder: (context) => HomeScreen()));
       },
       child: Scaffold(
-     appBar: AppBar(
-  backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
-  leading: IconButton(
-    onPressed: () {
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (context) => HomeScreen()));
-    },
-    icon: Icon(
-      Icons.arrow_back,
-      color: slapp_color.primary,
-    ),
-  ),
-  title: Text(
-    'Wi-Fi : $_ssid ($_wifiIp)',
-    style: TextStyle(color: slapp_color.primary, fontSize: 13),
-  ),
-  actions: [
-    IconButton(
-      onPressed: () {
-        getCurrentWifiSSID();
-      },
-      icon: Icon(
-        Icons.refresh,
-        color: slapp_color.primary,
-      ),
-    ),
-    PopupMenuButton<String>(
-      icon: Icon(
-        Icons.menu,
-        color: slapp_color.primary,
-      ),
-      onSelected: (String value) {
-        if (value == 'refreshGPS') {
-          refreshGps();
-        } else if (value == 'deleteInstaller') {
-          // Add your delete installer function here
-          if(_filePath.length > 0){
-            removeFile(_filePath);
-            }else{
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            "No Installer File Found",
-            style: TextStyle(color: slapp_color.white),
+        appBar: AppBar(
+          backgroundColor: slapp_color.fifthiary.withOpacity(0.2),
+          leading: IconButton(
+            onPressed: () {
+              Navigator.pushReplacement(context,
+                  MaterialPageRoute(builder: (context) => HomeScreen()));
+            },
+            icon: Icon(
+              Icons.arrow_back,
+              color: slapp_color.primary,
+            ),
           ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
-            }
-       
-        }
-      },
-      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(
-          value: 'refreshGPS',
-          child: Text('Refresh GPS'),
-        ),
-        const PopupMenuItem<String>(
-          value: 'deleteInstaller',
-          child: Text('Delete Installer'),
-        ),
-      ],
-    ),
-  ],
-),
-      backgroundColor: slapp_color.white,
-      body: Center(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                height: 10,
+          title: Text(
+            'Wi-Fi : $_ssid ($_wifiIp)',
+            style: TextStyle(color: slapp_color.primary, fontSize: 13),
+          ),
+          actions: [
+            IconButton(
+              onPressed: () {
+                getCurrentWifiSSID();
+              },
+              icon: Icon(
+                Icons.refresh,
+                color: slapp_color.primary,
               ),
-              _commands.length > 0
-                  ? Container()
-                  : Container(
-                      margin: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 20),
-                      child: ElevatedButton(
-                          style: ButtonStyle(
-                            shape: MaterialStateProperty.all<
-                                    RoundedRectangleBorder>(
-                                const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.zero,
-                            )),
-                            backgroundColor:
-                                MaterialStateProperty.resolveWith<Color>(
-                              (Set<MaterialState> states) {
-                                return slapp_color.fifthiary.withOpacity(
-                                    0.6); // Defer to the widget's default.
-                              },
-                            ),
-                            elevation:
-                                MaterialStateProperty.resolveWith<double>(
-                              // As you said you dont need elevation. I'm returning 0 in both case
-                              (Set<MaterialState> states) {
-                                if (states.contains(MaterialState.disabled)) {
-                                  return 0;
-                                }
-                                return 0; // Defer to the widget's default.
-                              },
-                            ),
-                          ),
-                          onPressed: () async {
-                            fetchCommands();
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.refresh,
-                                  color: slapp_color.primary,
-                                ),
-                                const SizedBox(
-                                  width: 10.0,
-                                ),
-                                Text(
-                                  "INSTALL-CMD Empty, Refresh!",
-                                  softWrap: true,
-                                  style: const TextStyle(
-                                      color: slapp_color.primary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          )),
-                    ),
-              is_download
-                  ? CircularPercentIndicator(
-                      radius: 100.0,
-                      lineWidth: 20.0,
-                      animateFromLastPercent: true,
-                      animation: true,
-                      percent: status_download / 100,
-                      center: error_download
-                          ? IconButton(
-                              onPressed: () {
-                                downloadFile(_url + down_link, down_filename);
-                              },
-                              icon: Icon(
-                                Icons.replay_circle_filled,
-                                size: 45.0,
-                                color: slapp_color.secondary,
-                              ))
-                          : Image.asset(
-                              'assets/images/download.gif',
-                              fit: BoxFit.fill,
-                              height: 130.0,
-                              width: 130.0,
-                            ),
-                      progressColor: error_download
-                          ? slapp_color.error
-                          : slapp_color.primary,
-                    )
-                  : (install_completed && !is_install
-                      ? Image.asset(
-                          'assets/images/complete.gif',
-                          fit: BoxFit.fill,
-                          height: 150.0,
-                          width: 150.0,
-                        )
-                      : is_install
-                          ? (install_satisfied
-                              ? Image.asset(
-                                  'assets/images/already.gif',
-                                  fit: BoxFit.fill,
-                                  height: 150.0,
-                                  width: 150.0,
-                                )
-                              : (is_error_cmd
-                                  ? IconButton(
-                                      onPressed: runCommands,
-                                      icon: Icon(
-                                          color: slapp_color.black_text,
-                                          Icons.replay_circle_filled_outlined))
-                                  : (is_checkwifi
-                                      ? Image.asset(
-                                          'assets/images/wifi.gif',
-                                          fit: BoxFit.fill,
-                                          height: 150.0,
-                                          width: 150.0,
-                                        )
-                                      : is_deleting_installer
-                                          ? Image.asset(
-                                              'assets/images/upload.gif',
-                                              fit: BoxFit.fill,
-                                              height: 150.0,
-                                              width: 150.0,
-                                            )
-                                          : is_transfer
-                                          ? Image.asset(
-                                              'assets/images/upload_static.png',
-                                              fit: BoxFit.fill,
-                                              height: 100.0,
-                                              width: 100.0,
-                                            )
-                                          : is_unzip
-                                              ? Image.asset(
-                                                  'assets/images/unzip.gif',
-                                                  fit: BoxFit.fill,
-                                                  height: 150.0,
-                                                  width: 150.0,
-                                                )
-                                              : Image.asset(
-                                                  'assets/images/command.gif',
-                                                  fit: BoxFit.fill,
-                                                  height: 150.0,
-                                                  width: 150.0,
-                                                ))))
-                          : (install_satisfied
-                              ? Icon(
-                                  Icons.close,
-                                  size: 120,
-                                  color: slapp_color.error,
-                                )
-                              : (_filePath.length > 0
-                                  ? Image.asset(
-                                      'assets/images/ready_install.gif',
-                                      fit: BoxFit.fill,
-                                      height: 150.0,
-                                      width: 150.0,
-                                    )
-                                  : Image.asset(
-                                      'assets/images/updates.gif',
-                                      fit: BoxFit.fill,
-                                      height: 150.0,
-                                      width: 150.0,
-                                    )))),
-              SizedBox(
-                height: 16.9,
+            ),
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.menu,
+                color: slapp_color.primary,
               ),
-              !install_completed
-                  ? (install_satisfied
-                      ? Padding(
-                          padding: EdgeInsets.all(20.0),
-                          child: RichText(
-                              textAlign: TextAlign.center,
-                              text: TextSpan(
-                                style: TextStyle(color: slapp_color.secondary),
-                                children: <TextSpan>[
-                                  TextSpan(
-                                      text:
-                                          'Sailogger is Already on Version 7.19',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text,
-                                          fontSize: 20)),
-                                ],
-                              )),
-                        )
-                      : (!is_install && !is_download
-                          ? (_filePath.length > 0
-                              ? Padding(
-                                  padding: EdgeInsets.all(20.0),
-                                  child: RichText(
-                                      textAlign: TextAlign.center,
-                                      text: TextSpan(
-                                        style: TextStyle(
-                                            color: slapp_color.secondary),
-                                        children: <TextSpan>[
-                                          TextSpan(
-                                              text:
-                                                  'Update File is Ready to Install, ',
-                                              style: TextStyle(
-                                                  color: slapp_color.black_text,
-                                                  fontSize: 20,
-                                                  fontWeight: FontWeight.bold)),
-                                          TextSpan(
-                                              text:
-                                                  'Please Click Install Button ',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: slapp_color.primary,
-                                                  fontSize: 20)),
-                                        ],
-                                      )),
-                                )
-                              : Padding(
-                                  padding: EdgeInsets.all(20.0),
-                                  child: RichText(
-                                      textAlign: TextAlign.center,
-                                      text: TextSpan(
-                                        style: TextStyle(
-                                            color: slapp_color.secondary),
-                                        children: <TextSpan>[
-                                          TextSpan(
-                                              text:
-                                                  'Please follow 2 steps bellow to update your ',
-                                              style: TextStyle(
-                                                  color: slapp_color.black_text,
-                                                  fontSize: 15,
-                                                  fontWeight: FontWeight.bold)),
-                                          TextSpan(
-                                              text: 'SAILOGGER-SOFTWARE ',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: slapp_color.primary,
-                                                  fontSize: 15)),
-                                        ],
-                                      )),
-                                ))
-                          : Container()))
-                  : Padding(
-                      padding: EdgeInsets.all(20.0),
-                      child: RichText(
-                          textAlign: TextAlign.center,
-                          text: TextSpan(
-                            style: TextStyle(color: slapp_color.secondary),
-                            children: <TextSpan>[
-                              TextSpan(
-                                  text: 'Sailogger Update is completed ',
-                                  style: TextStyle(
-                                      color: slapp_color.black_text,
-                                      fontSize: 20)),
-                            ],
-                          )),
-                    ),
-              (is_install || is_download) && !install_satisfied
-                  ? Text('STATUS:',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: slapp_color.primary))
-                  : Container(),
-              is_download
-                  ? Padding(
-                      padding: EdgeInsets.only(bottom: 20),
-                      child: Text(
-                        "Ongoing Download : " +
-                            status_download
-                                .toStringAsFixed(0)
-                                .replaceAll('.0', '') +
-                            "%",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 20,
-                            color: slapp_color.black_text,
-                            fontWeight: FontWeight.bold),
+              onSelected: (String value) {
+                if (value == 'refreshGPS') {
+                  refreshGps();
+                } else if (value == 'deleteInstaller') {
+                  // Add your delete installer function here
+                  if (_filePath.length > 0) {
+                    removeFile(_filePath);
+                  } else {
+                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+                      backgroundColor: slapp_color.error,
+                      content: Text(
+                        "No Installer File Found",
+                        style: TextStyle(color: slapp_color.white),
                       ),
-                    )
-                  : Container(),
-              (is_install || is_deleting_installer) && !install_satisfied
-                  ? Padding(
-                      padding:
-                          EdgeInsets.only(bottom: 20.0, left: 20, right: 20),
-                      child: ValueListenableBuilder<String>(
-                        valueListenable: _progressNotifier,
-                        builder: (context, value, child) {
-                          return Center(
-                            child: Text(
-                              value,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 20,
-                                  color: slapp_color.black_text,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : Container(),
-              (is_install || is_deleting_installer)
-                  ? Padding(
-                      padding:
-                          EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
-                      child: Text(
-                        textAlign: TextAlign.center,
-                        "DO NOT CLOSE THE APPLICATION, OR INSTALL WILL BE FAILED!",
-                        style: TextStyle(
-                          color: slapp_color.primary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  : Container(),
-              Padding(
-                padding: EdgeInsets.only(bottom: 20.0),
-                child: Divider(
-                  color: slapp_color.fifthiary,
+                      showCloseIcon: true,
+                      closeIconColor: slapp_color.white,
+                    ));
+                  }
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'refreshGPS',
+                  child: Text('Refresh GPS'),
                 ),
-              ),
-              !install_completed
-                  ? (!install_satisfied
-                      ? Container(
-                          margin: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 20),
-                          child: RichText(
-                              textAlign: TextAlign.start,
-                              text: TextSpan(
-                                style: TextStyle(color: slapp_color.secondary),
-                                children: const <TextSpan>[
-                                  TextSpan(
-                                      text: '1. Connect your phone to ',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text)),
-                                  TextSpan(
-                                      text: 'STABLE INTERNET CONNECTION ',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: slapp_color.primary)),
-                                  TextSpan(
-                                      text: 'and click download bellow: ',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text)),
-                                ],
+                const PopupMenuItem<String>(
+                  value: 'deleteInstaller',
+                  child: Text('Delete Installer'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        backgroundColor: slapp_color.white,
+        body: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: 10,
+                ),
+                _commands.length > 0
+                    ? Container()
+                    : Container(
+                        margin: const EdgeInsets.symmetric(
+                            vertical: 10, horizontal: 20),
+                        child: ElevatedButton(
+                            style: ButtonStyle(
+                              shape: MaterialStateProperty.all<
+                                      RoundedRectangleBorder>(
+                                  const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.zero,
                               )),
-                        )
-                      : Container())
-                  : Container(),
-              !install_completed
-                  ? (!install_satisfied
-                      ? Container(
-                          margin: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 20),
-                          child: ElevatedButton(
-                              style: ButtonStyle(
-                                shape: MaterialStateProperty.all<
-                                        RoundedRectangleBorder>(
-                                    const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.zero,
-                                )),
-                                backgroundColor:
-                                    MaterialStateProperty.resolveWith<Color>(
-                                  (Set<MaterialState> states) {
-                                    return _filePath.length > 0
-                                        ? slapp_color.sixtiary
-                                        : (is_download
-                                            ? slapp_color.sixtiary
-                                            : slapp_color
-                                                .primary); // Defer to the widget's default.
-                                  },
-                                ),
-                                elevation:
-                                    MaterialStateProperty.resolveWith<double>(
-                                  // As you said you dont need elevation. I'm returning 0 in both case
-                                  (Set<MaterialState> states) {
-                                    if (states
-                                        .contains(MaterialState.disabled)) {
-                                      return 0;
-                                    }
-                                    return 0; // Defer to the widget's default.
-                                  },
-                                ),
+                              backgroundColor:
+                                  MaterialStateProperty.resolveWith<Color>(
+                                (Set<MaterialState> states) {
+                                  return slapp_color.fifthiary.withOpacity(
+                                      0.6); // Defer to the widget's default.
+                                },
                               ),
-                              onPressed: () async {
-                                if (_filePath.length > 0) {
-                                  ScaffoldMessenger.maybeOf(context)
-                                      ?.showSnackBar(SnackBar(
-                                    backgroundColor: slapp_color.primary,
-                                    content: Text(
-                                      "Download Has Been Completed, Please Connect to SAILOGGER-HOTSPOT and Install",
-                                      style:
-                                          TextStyle(color: slapp_color.white),
-                                    ),
-                                    showCloseIcon: true,
-                                    closeIconColor: slapp_color.white,
-                                  ));
-                                } else {
-                                  if (is_download) {
-                                    ScaffoldMessenger.maybeOf(context)
-                                        ?.showSnackBar(SnackBar(
-                                      backgroundColor: slapp_color.error,
-                                      content: Text(
-                                        "Download is ON-PROGGRESS",
-                                        style:
-                                            TextStyle(color: slapp_color.white),
-                                      ),
-                                      showCloseIcon: true,
-                                      closeIconColor: slapp_color.white,
-                                    ));
-                                  } else {
-                                    downloadFile(
-                                        _url + down_link, down_filename);
+                              elevation:
+                                  MaterialStateProperty.resolveWith<double>(
+                                // As you said you dont need elevation. I'm returning 0 in both case
+                                (Set<MaterialState> states) {
+                                  if (states.contains(MaterialState.disabled)) {
+                                    return 0;
                                   }
-                                }
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    is_download
-                                        ? SizedBox(
-                                            child: Center(
-                                                child:
-                                                    CircularProgressIndicator(
-                                              color: slapp_color.white,
-                                            )),
-                                            height: 20.0,
-                                            width: 20.0,
-                                          )
-                                        : Icon(
-                                            Icons.download,
-                                            color: slapp_color.white,
-                                          ),
-                                    const SizedBox(
-                                      width: 10.0,
-                                    ),
-                                    Text(
-                                      "Download Update".toUpperCase(),
-                                      style: const TextStyle(
-                                          color: slapp_color.white,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
-                              )),
-                        )
-                      : Container())
-                  : Container(),
-              !install_completed
-                  ? (!install_satisfied
-                      ? Container(
-                          margin: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 20),
-                          child: RichText(
-                              textAlign: TextAlign.start,
-                              text: TextSpan(
-                                style: TextStyle(color: slapp_color.secondary),
-                                children: const <TextSpan>[
-                                  TextSpan(
-                                      text: '2. Connect your phone to ',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text)),
-                                  TextSpan(
-                                      text: 'SAILOGGER-HOTSPOT ',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: slapp_color.primary)),
-                                  TextSpan(
-                                      text: 'and click install bellow: ',
-                                      style: TextStyle(
-                                          color: slapp_color.black_text)),
-                                ],
-                              )),
-                        )
-                      : Container())
-                  : Container(),
-              !install_completed
-                  ? (!install_satisfied
-                      ? Container(
-                          margin: const EdgeInsets.symmetric(
-                              vertical: 10, horizontal: 20),
-                          child: ElevatedButton(
-                              style: ButtonStyle(
-                                shape: MaterialStateProperty.all<
-                                        RoundedRectangleBorder>(
-                                    const RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.zero,
-                                )),
-                                backgroundColor:
-                                    MaterialStateProperty.resolveWith<Color>(
-                                  (Set<MaterialState> states) {
-                                    return (_filePath.length > 0) &&
-                                            (_commands.length > 0)
-                                        ? (is_install || install_completed
-                                            ? slapp_color.sixtiary
-                                            : slapp_color.primary)
-                                        : slapp_color
-                                            .sixtiary; // Defer to the widget's default.
-                                  },
-                                ),
-                                elevation:
-                                    MaterialStateProperty.resolveWith<double>(
-                                  // As you said you dont need elevation. I'm returning 0 in both case
-                                  (Set<MaterialState> states) {
-                                    if (states
-                                        .contains(MaterialState.disabled)) {
-                                      return 0;
-                                    }
-                                    return 0; // Defer to the widget's default.
-                                  },
-                                ),
+                                  return 0; // Defer to the widget's default.
+                                },
                               ),
-                              onPressed: () async {
-                                if ((_filePath.length > 0) &&
-                                    (_commands.length > 0)) {
-                                  // Compare the current SSID with the desired one
-                                  if (is_install) {
-                                    ScaffoldMessenger.maybeOf(context)
-                                        ?.showSnackBar(SnackBar(
-                                      backgroundColor: slapp_color.error,
-                                      content: Text(
-                                        "Update is ON-PROGGRESS, Please Wait.",
-                                        style:
-                                            TextStyle(color: slapp_color.white),
-                                      ),
-                                      showCloseIcon: true,
-                                      closeIconColor: slapp_color.white,
-                                    ));
-                                  } else if (install_completed) {
+                            ),
+                            onPressed: () async {
+                              loadSelectedPackage();
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.refresh,
+                                    color: slapp_color.primary,
+                                  ),
+                                  const SizedBox(
+                                    width: 10.0,
+                                  ),
+                                  Text(
+                                    "INSTALL-CMD Empty, Refresh!",
+                                    softWrap: true,
+                                    style: const TextStyle(
+                                        color: slapp_color.primary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            )),
+                      ),
+                is_download
+                    ? CircularPercentIndicator(
+                        radius: 100.0,
+                        lineWidth: 20.0,
+                        animateFromLastPercent: true,
+                        animation: true,
+                        percent: status_download / 100,
+                        center: error_download
+                            ? IconButton(
+                                onPressed: () {
+                                  downloadFile(_url + down_link, down_filename);
+                                },
+                                icon: Icon(
+                                  Icons.replay_circle_filled,
+                                  size: 45.0,
+                                  color: slapp_color.secondary,
+                                ))
+                            : Image.asset(
+                                'assets/images/download.gif',
+                                fit: BoxFit.fill,
+                                height: 130.0,
+                                width: 130.0,
+                              ),
+                        progressColor: error_download
+                            ? slapp_color.error
+                            : slapp_color.primary,
+                      )
+                    : (install_completed && !is_install
+                        ? Image.asset(
+                            'assets/images/complete.gif',
+                            fit: BoxFit.fill,
+                            height: 150.0,
+                            width: 150.0,
+                          )
+                        : is_install
+                            ? (install_satisfied
+                                ? Image.asset(
+                                    'assets/images/already.gif',
+                                    fit: BoxFit.fill,
+                                    height: 150.0,
+                                    width: 150.0,
+                                  )
+                                : (is_error_cmd
+                                    ? IconButton(
+                                        onPressed: runCommands,
+                                        icon: Icon(
+                                            color: slapp_color.black_text,
+                                            Icons
+                                                .replay_circle_filled_outlined))
+                                    : (is_checkwifi
+                                        ? Image.asset(
+                                            'assets/images/wifi.gif',
+                                            fit: BoxFit.fill,
+                                            height: 150.0,
+                                            width: 150.0,
+                                          )
+                                        : is_deleting_installer
+                                            ? Image.asset(
+                                                'assets/images/upload.gif',
+                                                fit: BoxFit.fill,
+                                                height: 150.0,
+                                                width: 150.0,
+                                              )
+                                            : is_transfer
+                                                ? Image.asset(
+                                                    'assets/images/upload_static.png',
+                                                    fit: BoxFit.fill,
+                                                    height: 100.0,
+                                                    width: 100.0,
+                                                  )
+                                                : is_unzip
+                                                    ? Image.asset(
+                                                        'assets/images/unzip.gif',
+                                                        fit: BoxFit.fill,
+                                                        height: 150.0,
+                                                        width: 150.0,
+                                                      )
+                                                    : Image.asset(
+                                                        'assets/images/command.gif',
+                                                        fit: BoxFit.fill,
+                                                        height: 150.0,
+                                                        width: 150.0,
+                                                      ))))
+                            : (install_satisfied
+                                ? Icon(
+                                    Icons.close,
+                                    size: 120,
+                                    color: slapp_color.error,
+                                  )
+                                : (_filePath.length > 0
+                                    ? Image.asset(
+                                        'assets/images/ready_install.gif',
+                                        fit: BoxFit.fill,
+                                        height: 150.0,
+                                        width: 150.0,
+                                      )
+                                    : Image.asset(
+                                        'assets/images/updates.gif',
+                                        fit: BoxFit.fill,
+                                        height: 150.0,
+                                        width: 150.0,
+                                      )))),
+                SizedBox(
+                  height: 16.9,
+                ),
+                !install_completed
+                    ? (install_satisfied
+                        ? Padding(
+                            padding: EdgeInsets.all(20.0),
+                            child: RichText(
+                                textAlign: TextAlign.center,
+                                text: TextSpan(
+                                  style:
+                                      TextStyle(color: slapp_color.secondary),
+                                  children: <TextSpan>[
+                                    TextSpan(
+                                        text:
+                                            'Sailogger is Already on Version $_selectedVersionLabel',
+                                        style: TextStyle(
+                                            color: slapp_color.black_text,
+                                            fontSize: 20)),
+                                  ],
+                                )),
+                          )
+                        : (!is_install && !is_download
+                            ? (_filePath.length > 0
+                                ? Padding(
+                                    padding: EdgeInsets.all(20.0),
+                                    child: RichText(
+                                        textAlign: TextAlign.center,
+                                        text: TextSpan(
+                                          style: TextStyle(
+                                              color: slapp_color.secondary),
+                                          children: <TextSpan>[
+                                            TextSpan(
+                                                text:
+                                                    'Update File is Ready to Install, ',
+                                                style: TextStyle(
+                                                    color:
+                                                        slapp_color.black_text,
+                                                    fontSize: 20,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                            TextSpan(
+                                                text:
+                                                    'Please Click Install Button ',
+                                                style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: slapp_color.primary,
+                                                    fontSize: 20)),
+                                          ],
+                                        )),
+                                  )
+                                : Padding(
+                                    padding: EdgeInsets.all(20.0),
+                                    child: RichText(
+                                        textAlign: TextAlign.center,
+                                        text: TextSpan(
+                                          style: TextStyle(
+                                              color: slapp_color.secondary),
+                                          children: <TextSpan>[
+                                            TextSpan(
+                                                text:
+                                                    'Please follow 2 steps bellow to update your ',
+                                                style: TextStyle(
+                                                    color:
+                                                        slapp_color.black_text,
+                                                    fontSize: 15,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                            TextSpan(
+                                                text: 'SAILOGGER-SOFTWARE ',
+                                                style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: slapp_color.primary,
+                                                    fontSize: 15)),
+                                          ],
+                                        )),
+                                  ))
+                            : Container()))
+                    : Padding(
+                        padding: EdgeInsets.all(20.0),
+                        child: RichText(
+                            textAlign: TextAlign.center,
+                            text: TextSpan(
+                              style: TextStyle(color: slapp_color.secondary),
+                              children: <TextSpan>[
+                                TextSpan(
+                                    text: 'Sailogger Update is completed ',
+                                    style: TextStyle(
+                                        color: slapp_color.black_text,
+                                        fontSize: 20)),
+                              ],
+                            )),
+                      ),
+                (is_install || is_download) && !install_satisfied
+                    ? Text('STATUS:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: slapp_color.primary))
+                    : Container(),
+                is_download
+                    ? Padding(
+                        padding: EdgeInsets.only(bottom: 20),
+                        child: Text(
+                          "Ongoing Download : " +
+                              status_download
+                                  .toStringAsFixed(0)
+                                  .replaceAll('.0', '') +
+                              "%",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 20,
+                              color: slapp_color.black_text,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      )
+                    : Container(),
+                (is_install || is_deleting_installer) && !install_satisfied
+                    ? Padding(
+                        padding:
+                            EdgeInsets.only(bottom: 20.0, left: 20, right: 20),
+                        child: ValueListenableBuilder<String>(
+                          valueListenable: _progressNotifier,
+                          builder: (context, value, child) {
+                            return Center(
+                              child: Text(
+                                value,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 20,
+                                    color: slapp_color.black_text,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    : Container(),
+                (is_install || is_deleting_installer)
+                    ? Padding(
+                        padding:
+                            EdgeInsets.only(bottom: 60.0, left: 20, right: 20),
+                        child: Text(
+                          textAlign: TextAlign.center,
+                          "DO NOT CLOSE THE APPLICATION, OR INSTALL WILL BE FAILED!",
+                          style: TextStyle(
+                            color: slapp_color.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
+                    : Container(),
+                Padding(
+                  padding: EdgeInsets.only(bottom: 20.0),
+                  child: Divider(
+                    color: slapp_color.fifthiary,
+                  ),
+                ),
+                !install_completed
+                    ? (!install_satisfied
+                        ? Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 20),
+                            child: RichText(
+                                textAlign: TextAlign.start,
+                                text: TextSpan(
+                                  style:
+                                      TextStyle(color: slapp_color.secondary),
+                                  children: const <TextSpan>[
+                                    TextSpan(
+                                        text: '1. Connect your phone to ',
+                                        style: TextStyle(
+                                            color: slapp_color.black_text)),
+                                    TextSpan(
+                                        text: 'STABLE INTERNET CONNECTION ',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: slapp_color.primary)),
+                                    TextSpan(
+                                        text: 'and click download bellow: ',
+                                        style: TextStyle(
+                                            color: slapp_color.black_text)),
+                                  ],
+                                )),
+                          )
+                        : Container())
+                    : Container(),
+                !install_completed
+                    ? (!install_satisfied
+                        ? Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 20),
+                            child: ElevatedButton(
+                                style: ButtonStyle(
+                                  shape: MaterialStateProperty.all<
+                                          RoundedRectangleBorder>(
+                                      const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.zero,
+                                  )),
+                                  backgroundColor:
+                                      MaterialStateProperty.resolveWith<Color>(
+                                    (Set<MaterialState> states) {
+                                      return _filePath.length > 0
+                                          ? slapp_color.sixtiary
+                                          : (is_download
+                                              ? slapp_color.sixtiary
+                                              : slapp_color
+                                                  .primary); // Defer to the widget's default.
+                                    },
+                                  ),
+                                  elevation:
+                                      MaterialStateProperty.resolveWith<double>(
+                                    // As you said you dont need elevation. I'm returning 0 in both case
+                                    (Set<MaterialState> states) {
+                                      if (states
+                                          .contains(MaterialState.disabled)) {
+                                        return 0;
+                                      }
+                                      return 0; // Defer to the widget's default.
+                                    },
+                                  ),
+                                ),
+                                onPressed: () async {
+                                  if (_filePath.length > 0) {
                                     ScaffoldMessenger.maybeOf(context)
                                         ?.showSnackBar(SnackBar(
                                       backgroundColor: slapp_color.primary,
                                       content: Text(
-                                        "Sailogger already update to SAILOGGER-7.19",
+                                        "Download Has Been Completed, Please Connect to SAILOGGER-HOTSPOT and Install",
                                         style:
                                             TextStyle(color: slapp_color.white),
                                       ),
@@ -1479,270 +1331,410 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       closeIconColor: slapp_color.white,
                                     ));
                                   } else {
-                                    _progressNotifier.value =
-                                        "Checking Device Connection...";
-                                    setState(() {
-                                      is_install = true;
-                                      is_checkwifi = true;
-                                    });
-                                    getCurrentWifiSSID();
-                                    await Future.delayed(Duration(seconds: 10));
-                                    final currentSsid =
-                                        (_ssid ?? '').replaceAll('"', '');
-                                    final isDeviceWifi =
-                                        _isDeviceWifiSsid(currentSsid);
-                                    final isReachable =
-                                        await _isDeviceReachable();
-                                    if (isDeviceWifi || isReachable) {
-                                      setState(() {});
-                                      await Future.delayed(
-                                          Duration(seconds: 3));
-                                      checkAndRemoveFiles(
-                                        host: host,
-                                        port: port,
-                                        username: username,
-                                        password: password,
-                                        paths: [
-                                          '/home/skyflix/html',
-                                          '/home/skyflix/PyDashboard',
-                                          '/home/skyflix/Python',
-                                          '/home/skyflix/system-download',
-                                          '/home/skyflix/SAILOGGER-NEO-7.19.zip',
-                                          '/home/skyflix/update719.sh',
-                                          '/home/skyflix/update_screen.py',
-                                          // '/home/skyflix/update719.log',
-                                        ],
-                                      );
-                                    } else {
+                                    if (is_download) {
                                       ScaffoldMessenger.maybeOf(context)
                                           ?.showSnackBar(SnackBar(
                                         backgroundColor: slapp_color.error,
                                         content: Text(
-                                          "Please Connect to SAILOGGER-HOTSPOT",
+                                          "Download is ON-PROGGRESS",
                                           style: TextStyle(
                                               color: slapp_color.white),
                                         ),
                                         showCloseIcon: true,
                                         closeIconColor: slapp_color.white,
                                       ));
-                                      setState(() {
-                                        is_install = false;
-                                        is_transfer = false;
-                                      });
+                                    } else {
+                                      downloadFile(
+                                          _url + down_link, down_filename);
                                     }
                                   }
-                                } else {
-                                  ScaffoldMessenger.maybeOf(context)
-                                      ?.showSnackBar(SnackBar(
-                                    backgroundColor: slapp_color.error,
-                                    content: Text(
-                                      "Please Download Update First",
-                                      style:
-                                          TextStyle(color: slapp_color.white),
-                                    ),
-                                    showCloseIcon: true,
-                                    closeIconColor: slapp_color.white,
-                                  ));
-                                }
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    is_install
-                                        ? Icon(
-                                            Icons.arrow_circle_up_rounded,
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      is_download
+                                          ? SizedBox(
+                                              child: Center(
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                color: slapp_color.white,
+                                              )),
+                                              height: 20.0,
+                                              width: 20.0,
+                                            )
+                                          : Icon(
+                                              Icons.download,
+                                              color: slapp_color.white,
+                                            ),
+                                      const SizedBox(
+                                        width: 10.0,
+                                      ),
+                                      Text(
+                                        "Download Update".toUpperCase(),
+                                        style: const TextStyle(
                                             color: slapp_color.white,
-                                          )
-                                        : Icon(
-                                            Icons.install_desktop,
-                                            color: slapp_color.white,
-                                          ),
-                                    const SizedBox(
-                                      width: 10.0,
-                                    ),
-                                    Text(
-                                      "Install Update".toUpperCase(),
-                                      style: const TextStyle(
-                                          color: slapp_color.white,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold),
-                                    ),
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                )),
+                          )
+                        : Container())
+                    : Container(),
+                !install_completed
+                    ? (!install_satisfied
+                        ? Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 20),
+                            child: RichText(
+                                textAlign: TextAlign.start,
+                                text: TextSpan(
+                                  style:
+                                      TextStyle(color: slapp_color.secondary),
+                                  children: const <TextSpan>[
+                                    TextSpan(
+                                        text: '2. Connect your phone to ',
+                                        style: TextStyle(
+                                            color: slapp_color.black_text)),
+                                    TextSpan(
+                                        text: 'SAILOGGER-HOTSPOT ',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: slapp_color.primary)),
+                                    TextSpan(
+                                        text: 'and click install bellow: ',
+                                        style: TextStyle(
+                                            color: slapp_color.black_text)),
                                   ],
+                                )),
+                          )
+                        : Container())
+                    : Container(),
+                !install_completed
+                    ? (!install_satisfied
+                        ? Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 20),
+                            child: ElevatedButton(
+                                style: ButtonStyle(
+                                  shape: MaterialStateProperty.all<
+                                          RoundedRectangleBorder>(
+                                      const RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.zero,
+                                  )),
+                                  backgroundColor:
+                                      MaterialStateProperty.resolveWith<Color>(
+                                    (Set<MaterialState> states) {
+                                      return (_filePath.length > 0) &&
+                                              (_commands.length > 0)
+                                          ? (is_install || install_completed
+                                              ? slapp_color.sixtiary
+                                              : slapp_color.primary)
+                                          : slapp_color
+                                              .sixtiary; // Defer to the widget's default.
+                                    },
+                                  ),
+                                  elevation:
+                                      MaterialStateProperty.resolveWith<double>(
+                                    // As you said you dont need elevation. I'm returning 0 in both case
+                                    (Set<MaterialState> states) {
+                                      if (states
+                                          .contains(MaterialState.disabled)) {
+                                        return 0;
+                                      }
+                                      return 0; // Defer to the widget's default.
+                                    },
+                                  ),
                                 ),
+                                onPressed: () async {
+                                  if ((_filePath.length > 0) &&
+                                      (_commands.length > 0)) {
+                                    // Compare the current SSID with the desired one
+                                    if (is_install) {
+                                      ScaffoldMessenger.maybeOf(context)
+                                          ?.showSnackBar(SnackBar(
+                                        backgroundColor: slapp_color.error,
+                                        content: Text(
+                                          "Update is ON-PROGGRESS, Please Wait.",
+                                          style: TextStyle(
+                                              color: slapp_color.white),
+                                        ),
+                                        showCloseIcon: true,
+                                        closeIconColor: slapp_color.white,
+                                      ));
+                                    } else if (install_completed) {
+                                      ScaffoldMessenger.maybeOf(context)
+                                          ?.showSnackBar(SnackBar(
+                                        backgroundColor: slapp_color.primary,
+                                        content: Text(
+                                          "Sailogger already update to SAILOGGER-$_selectedVersionLabel",
+                                          style: TextStyle(
+                                              color: slapp_color.white),
+                                        ),
+                                        showCloseIcon: true,
+                                        closeIconColor: slapp_color.white,
+                                      ));
+                                    } else {
+                                      _progressNotifier.value =
+                                          "Checking Device Connection...";
+                                      setState(() {
+                                        is_install = true;
+                                        is_checkwifi = true;
+                                      });
+                                      getCurrentWifiSSID();
+                                      await Future.delayed(
+                                          Duration(seconds: 10));
+                                      final currentSsid =
+                                          (_ssid ?? '').replaceAll('"', '');
+                                      final isDeviceWifi =
+                                          _isDeviceWifiSsid(currentSsid);
+                                      final isReachable =
+                                          await _isDeviceReachable();
+                                      if (isDeviceWifi || isReachable) {
+                                        setState(() {});
+                                        await Future.delayed(
+                                            Duration(seconds: 3));
+                                        checkAndRemoveFiles(
+                                          host: host,
+                                          port: port,
+                                          username: username,
+                                          password: password,
+                                          paths: _cleanupPaths,
+                                        );
+                                      } else {
+                                        ScaffoldMessenger.maybeOf(context)
+                                            ?.showSnackBar(SnackBar(
+                                          backgroundColor: slapp_color.error,
+                                          content: Text(
+                                            "Please Connect to SAILOGGER-HOTSPOT",
+                                            style: TextStyle(
+                                                color: slapp_color.white),
+                                          ),
+                                          showCloseIcon: true,
+                                          closeIconColor: slapp_color.white,
+                                        ));
+                                        setState(() {
+                                          is_install = false;
+                                          is_transfer = false;
+                                        });
+                                      }
+                                    }
+                                  } else {
+                                    ScaffoldMessenger.maybeOf(context)
+                                        ?.showSnackBar(SnackBar(
+                                      backgroundColor: slapp_color.error,
+                                      content: Text(
+                                        "Please Download Update First",
+                                        style:
+                                            TextStyle(color: slapp_color.white),
+                                      ),
+                                      showCloseIcon: true,
+                                      closeIconColor: slapp_color.white,
+                                    ));
+                                  }
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      is_install
+                                          ? Icon(
+                                              Icons.arrow_circle_up_rounded,
+                                              color: slapp_color.white,
+                                            )
+                                          : Icon(
+                                              Icons.install_desktop,
+                                              color: slapp_color.white,
+                                            ),
+                                      const SizedBox(
+                                        width: 10.0,
+                                      ),
+                                      Text(
+                                        "Install Update".toUpperCase(),
+                                        style: const TextStyle(
+                                            color: slapp_color.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                )),
+                          )
+                        : Container())
+                    : Container(),
+                install_completed || install_satisfied
+                    ? Container(
+                        margin: const EdgeInsets.symmetric(
+                            vertical: 10, horizontal: 20),
+                        child: ElevatedButton(
+                            style: ButtonStyle(
+                              shape: MaterialStateProperty.all<
+                                      RoundedRectangleBorder>(
+                                  const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.zero,
                               )),
-                        )
-                      : Container())
-                  : Container(),
-              install_completed || install_satisfied
-                  ? Container(
-                      margin: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 20),
-                      child: ElevatedButton(
-                          style: ButtonStyle(
-                            shape: MaterialStateProperty.all<
-                                    RoundedRectangleBorder>(
-                                const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.zero,
-                            )),
-                            backgroundColor:
-                                MaterialStateProperty.resolveWith<Color>(
-                              (Set<MaterialState> states) {
-                                return slapp_color.fifthiary.withOpacity(0.9);
-                              },
-                            ),
-                            elevation:
-                                MaterialStateProperty.resolveWith<double>(
-                              (Set<MaterialState> states) {
-                                if (states.contains(MaterialState.disabled)) {
+                              backgroundColor:
+                                  MaterialStateProperty.resolveWith<Color>(
+                                (Set<MaterialState> states) {
+                                  return slapp_color.fifthiary.withOpacity(0.9);
+                                },
+                              ),
+                              elevation:
+                                  MaterialStateProperty.resolveWith<double>(
+                                (Set<MaterialState> states) {
+                                  if (states.contains(MaterialState.disabled)) {
+                                    return 0;
+                                  }
                                   return 0;
-                                }
-                                return 0;
-                              },
+                                },
+                              ),
                             ),
-                          ),
-                          onPressed: () async {
-                            Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => HomeScreen()));
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.rule_folder_outlined,
-                                  color: slapp_color.white,
-                                ),
-                                const SizedBox(
-                                  width: 10.0,
-                                ),
-                                Text(
-                                  "Device Check Menu".toUpperCase(),
-                                  style: const TextStyle(
-                                      color: slapp_color.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          )),
-                    )
-                  : Container(),
-              install_completed || install_satisfied
-                  ? Container(
-                      margin: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 20),
-                      child: ElevatedButton(
-                          style: ButtonStyle(
-                            shape: MaterialStateProperty.all<
-                                    RoundedRectangleBorder>(
-                                const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.zero,
+                            onPressed: () async {
+                              Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) => HomeScreen()));
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.rule_folder_outlined,
+                                    color: slapp_color.white,
+                                  ),
+                                  const SizedBox(
+                                    width: 10.0,
+                                  ),
+                                  Text(
+                                    "Device Check Menu".toUpperCase(),
+                                    style: const TextStyle(
+                                        color: slapp_color.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
                             )),
-                            backgroundColor:
-                                MaterialStateProperty.resolveWith<Color>(
-                              (Set<MaterialState> states) {
-                                return slapp_color
-                                    .primary; // Defer to the widget's default.
-                              },
+                      )
+                    : Container(),
+                install_completed || install_satisfied
+                    ? Container(
+                        margin: const EdgeInsets.symmetric(
+                            vertical: 10, horizontal: 20),
+                        child: ElevatedButton(
+                            style: ButtonStyle(
+                              shape: MaterialStateProperty.all<
+                                      RoundedRectangleBorder>(
+                                  const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.zero,
+                              )),
+                              backgroundColor:
+                                  MaterialStateProperty.resolveWith<Color>(
+                                (Set<MaterialState> states) {
+                                  return slapp_color
+                                      .primary; // Defer to the widget's default.
+                                },
+                              ),
+                              elevation:
+                                  MaterialStateProperty.resolveWith<double>(
+                                // As you said you dont need elevation. I'm returning 0 in both case
+                                (Set<MaterialState> states) {
+                                  if (states.contains(MaterialState.disabled)) {
+                                    return 0;
+                                  }
+                                  return 0; // Defer to the widget's default.
+                                },
+                              ),
                             ),
-                            elevation:
-                                MaterialStateProperty.resolveWith<double>(
-                              // As you said you dont need elevation. I'm returning 0 in both case
-                              (Set<MaterialState> states) {
-                                if (states.contains(MaterialState.disabled)) {
-                                  return 0;
-                                }
-                                return 0; // Defer to the widget's default.
-                              },
-                            ),
-                          ),
-                          onPressed: () async {
-                            exit(0);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.close,
-                                  color: slapp_color.white,
-                                ),
-                                const SizedBox(
-                                  width: 10.0,
-                                ),
-                                Text(
-                                  "Close Sailogger-7.19 Updater".toUpperCase(),
-                                  style: const TextStyle(
-                                      color: slapp_color.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          )),
-                    )
-                  : Container(),
-            ],
+                            onPressed: () async {
+                              exit(0);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.close,
+                                    color: slapp_color.white,
+                                  ),
+                                  const SizedBox(
+                                    width: 10.0,
+                                  ),
+                                  Text(
+                                    "Close Sailogger-$_selectedVersionLabel Updater"
+                                        .toUpperCase(),
+                                    style: const TextStyle(
+                                        color: slapp_color.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            )),
+                      )
+                    : Container(),
+              ],
+            ),
           ),
         ),
+        // bottomNavigationBar: Container(
+        //     color: slapp_color.tertiary,
+        //     child: Padding(
+        //       padding: MediaQuery.of(context).viewInsets,
+        //       child:  Container(
+        //               margin: const EdgeInsets.symmetric(
+        //                   vertical: 10, horizontal: 20),
+        //               child: ElevatedButton(
+        //                   style: ButtonStyle(
+        //                     shape:
+        //                         MaterialStateProperty.all<RoundedRectangleBorder>(
+        //                             const RoundedRectangleBorder(
+        //                       borderRadius: BorderRadius.zero,
+        //                     )),
+        //                     backgroundColor:
+        //                         MaterialStateProperty.resolveWith<Color>(
+        //                       (Set<MaterialState> states) {
+        //                         return slapp_color.primary;
+        //                       },
+        //                     ),
+        //                     elevation: MaterialStateProperty.resolveWith<double>(
+        //                       // As you said you dont need elevation. I'm returning 0 in both case
+        //                       (Set<MaterialState> states) {
+        //                         if (states.contains(MaterialState.disabled)) {
+        //                           return 0;
+        //                         }
+        //                         return 0; // Defer to the widget's default.
+        //                       },
+        //                     ),
+        //                   ),
+        //                   onPressed: () {
+        //                   },
+        //                   child: Padding(
+        //                     padding: const EdgeInsets.all(10),
+        //                     child: Row(
+        //                       mainAxisAlignment: MainAxisAlignment.center,
+        //                       children: [
+        //                         Text(
+        //                            "Start Action".toUpperCase(),
+        //                           style: const TextStyle(
+        //                               color: slapp_color.white,
+        //                               fontSize: 16,
+        //                               fontWeight: FontWeight.bold),
+        //                         ),
+        //                       ],
+        //                     ),
+        //                   )),
+        //             )
+        //           ,
+        //     ),),
       ),
-      // bottomNavigationBar: Container(
-      //     color: slapp_color.tertiary,
-      //     child: Padding(
-      //       padding: MediaQuery.of(context).viewInsets,
-      //       child:  Container(
-      //               margin: const EdgeInsets.symmetric(
-      //                   vertical: 10, horizontal: 20),
-      //               child: ElevatedButton(
-      //                   style: ButtonStyle(
-      //                     shape:
-      //                         MaterialStateProperty.all<RoundedRectangleBorder>(
-      //                             const RoundedRectangleBorder(
-      //                       borderRadius: BorderRadius.zero,
-      //                     )),
-      //                     backgroundColor:
-      //                         MaterialStateProperty.resolveWith<Color>(
-      //                       (Set<MaterialState> states) {
-      //                         return slapp_color.primary;
-      //                       },
-      //                     ),
-      //                     elevation: MaterialStateProperty.resolveWith<double>(
-      //                       // As you said you dont need elevation. I'm returning 0 in both case
-      //                       (Set<MaterialState> states) {
-      //                         if (states.contains(MaterialState.disabled)) {
-      //                           return 0;
-      //                         }
-      //                         return 0; // Defer to the widget's default.
-      //                       },
-      //                     ),
-      //                   ),
-      //                   onPressed: () {
-      //                   },
-      //                   child: Padding(
-      //                     padding: const EdgeInsets.all(10),
-      //                     child: Row(
-      //                       mainAxisAlignment: MainAxisAlignment.center,
-      //                       children: [
-      //                         Text(
-      //                            "Start Action".toUpperCase(),
-      //                           style: const TextStyle(
-      //                               color: slapp_color.white,
-      //                               fontSize: 16,
-      //                               fontWeight: FontWeight.bold),
-      //                         ),
-      //                       ],
-      //                     ),
-      //                   )),
-      //             )
-      //           ,
-      //     ),),
-    ),
     );
   }
 }
