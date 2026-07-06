@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/constant/colors.dart';
+import 'package:sailogger719/screens/diagnostic_commands.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 class DiagnosticScreen extends StatefulWidget {
@@ -32,6 +35,11 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   bool _isRunningServiceAction = false;
   bool _isKillingSailink = false;
   bool _isStartingSailink = false;
+  bool _isSailinkLogDialogOpen = false;
+
+  final ScrollController _sailinkLogScrollController = ScrollController();
+  final ValueNotifier<String> _sailinkLiveLog = ValueNotifier<String>('');
+  final ValueNotifier<bool> _sailinkLogRunning = ValueNotifier<bool>(false);
 
   final Map<String, String> _results = {};
   final List<String> _resultOrder = const [
@@ -39,6 +47,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     'Uptime',
     'FailedSMS Top10',
     'FailedSMS Bottom10',
+    'MessageReports.log',
     'FailedSMS Count',
     'IOT-Service',
     'RPM1',
@@ -51,9 +60,12 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     'GPS Parsed',
     'SAT Mode',
     'SAT Status',
+    'Iridium IMEI',
     'iTech.log',
     'Date Update',
     'THEREACH Process',
+    'SAILINK Process',
+    'SAILINK Start Log',
     'IRI-MSG.DAT',
   ];
 
@@ -117,6 +129,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   Future<void> _runSailinkAction({
     required String command,
     required String successMessage,
+    String? resultTitle,
+    String? resultValue,
     bool isKillAction = false,
     bool isStartAction = false,
   }) async {
@@ -163,6 +177,11 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         onPasswordRequest: () => password,
       );
       await _run(client, command);
+      if (resultTitle != null && resultValue != null && mounted) {
+        setState(() {
+          _results[resultTitle] = resultValue;
+        });
+      }
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(successMessage)),
@@ -185,6 +204,149 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         _isStartingSailink = false;
       });
     }
+  }
+
+  String _decodeOutputChunk(Uint8List data) {
+    try {
+      return utf8.decode(data, allowMalformed: true);
+    } catch (_) {
+      return latin1.decode(data, allowInvalid: true);
+    }
+  }
+
+  void _syncSailinkStartLog(String value) {
+    final trimmed = value.trimRight();
+    if (mounted) {
+      setState(() {
+        _results['SAILINK Start Log'] = trimmed;
+      });
+    } else {
+      _results['SAILINK Start Log'] = trimmed;
+    }
+    _sailinkLiveLog.value = trimmed;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_sailinkLogScrollController.hasClients) return;
+      _sailinkLogScrollController.animateTo(
+        _sailinkLogScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  Future<void> _showSailinkLiveLogDialog({
+    required String modeLabel,
+    required String commandLabel,
+  }) async {
+    if (!mounted || _isSailinkLogDialogOpen) return;
+    _isSailinkLogDialogOpen = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0F14),
+        titlePadding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+        contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        title: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'SAILINK Log',
+                    style: TextStyle(
+                      color: Color(0xFFE5F7EB),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'mode: $modeLabel  |  command: $commandLabel',
+                    style: const TextStyle(
+                      color: Color(0xFF7FDCA0),
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            ValueListenableBuilder<bool>(
+              valueListenable: _sailinkLogRunning,
+              builder: (context, running, _) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: running ? const Color(0xFF10381E) : const Color(0xFF24303D),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: running ? const Color(0xFF2DD36F) : const Color(0xFF51606F),
+                  ),
+                ),
+                child: Text(
+                  running ? 'RUNNING' : 'DONE',
+                  style: TextStyle(
+                    color: running ? const Color(0xFF98F5BA) : const Color(0xFFC9D4DF),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 720,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 220, maxHeight: 420),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF05080B),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFF1F2A35)),
+            ),
+            child: Scrollbar(
+              controller: _sailinkLogScrollController,
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                controller: _sailinkLogScrollController,
+                child: ValueListenableBuilder<String>(
+                  valueListenable: _sailinkLiveLog,
+                  builder: (context, log, _) => SelectableText(
+                    log.isEmpty ? 'Waiting for process output...' : log,
+                    style: const TextStyle(
+                      color: Color(0xFF98F5BA),
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: _sailinkLogRunning,
+            builder: (context, running, _) => TextButton(
+              onPressed: running ? null : () => Navigator.of(ctx).pop(),
+              child: Text(
+                running ? 'Process Running...' : 'Close',
+                style: TextStyle(
+                  color: running ? const Color(0xFF6E7D8A) : const Color(0xFF98F5BA),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    _isSailinkLogDialogOpen = false;
   }
 
   Future<void> _confirmAndKillSailink() async {
@@ -247,12 +409,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                     child: ElevatedButton(
                       onPressed: (_isRunning || _isRunningServiceAction)
                           ? null
-                          : () => _runSailinkAction(
-                                command:
-                                    'sleep 2 && /var/Python/SKYREACH-GL-IoT-GINTLIVE.RUN',
-                                successMessage: 'Start SAILINK command sent.',
-                                isStartAction: true,
-                              ),
+                          : _startSailink,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: slapp_color.success,
                         foregroundColor: slapp_color.white,
@@ -394,6 +551,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         steps.addAll([
           {'title': 'FailedSMS Top10', 'cmd': 'head -n 10 /var/Python/log/FailedSMS.log'},
           {'title': 'FailedSMS Bottom10', 'cmd': 'tail -n 10 /var/Python/log/FailedSMS.log'},
+          {'title': 'MessageReports.log', 'cmd': 'cat /var/Python/log/MessageReports.log | tail -n 50'},
           {'title': 'FailedSMS Count', 'cmd': 'wc -l /var/Python/log/FailedSMS.log'},
           {'title': 'IOT-Service', 'cmd': 'cat /var/Python/Configs/IOT-Service.SKY'},
           {'title': 'RPM1', 'cmd': 'cat /var/Python/Status/RPM1.json'},
@@ -405,8 +563,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           {'title': 'GPS Raw', 'cmd': 'cat /var/Python/GPS/SAILINK.json'},
           {'title': 'SAT Mode', 'cmd': 'cat /var/Python/Configs/Comm-NET.SKY'},
           {'title': 'SAT Status', 'cmd': '__SAT_STATUS__'},
+          {'title': 'Iridium IMEI', 'cmd': '/var/Python/SAILINK-SREST-INTERVAL-DT.SKY | grep IMEI'},
           {'title': 'iTech.log', 'cmd': 'tail -n 50 /var/Python/iTech.log'},
-          {'title': 'THEREACH Process', 'cmd': 'ps -ax | grep THEREACH'},
+          {'title': 'THEREACH Process', 'cmd': 'ps -eo pid,lstart,etime,cmd | grep THEREACH'},
+          {'title': 'SAILINK Process', 'cmd': 'ps -eo pid,lstart,etime,cmd | grep SAILINK'},
           {'title': 'IRI-MSG.DAT', 'cmd': 'cat /var/Python/log/IRI-MSG.DAT'},
         ]);
       }
@@ -421,13 +581,11 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         });
         String out;
         if (cmd == '__SAT_STATUS__') {
-          final satMode = (_results['SAT Mode'] ?? '').toLowerCase();
-          if (satMode.contains('iridium')) {
-            out = await _run(client, 'cat /var/Python/Status/Iridium.json');
-          } else if (satMode.contains('thuraya')) {
-            out = await _run(client, 'cat /var/Python/Status/Thuraya.json');
-          } else {
+          final satStatusCommand = satStatusCommandForMode(_results['SAT Mode'] ?? '');
+          if (satStatusCommand.isEmpty) {
             out = 'Unknown SAT mode';
+          } else {
+            out = await _run(client, satStatusCommand);
           }
         } else {
           out = await _run(client, cmd);
@@ -486,10 +644,111 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     }
   }
 
+  Future<void> _startSailink() async {
+    SSHClient? client;
+    SSHSession? session;
+    try {
+      if (_isRunning || _isRunningServiceAction) return;
+      setState(() {
+        _isRunningServiceAction = true;
+        _isStartingSailink = true;
+      });
+      _sailinkLogRunning.value = true;
+      client = SSHClient(
+        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      final satModeRaw = await _run(client, 'cat /var/Python/Configs/Comm-NET.SKY');
+      final config = sailinkStartConfigForMode(satModeRaw);
+      var hasNonBenignStderr = false;
+      var hasBenignStderr = false;
+      final logBuffer = StringBuffer(
+        '${config.log}\n\n> ${config.command}\n----------------------------------------\n',
+      );
+      _syncSailinkStartLog(logBuffer.toString());
+      unawaited(
+        _showSailinkLiveLogDialog(
+          modeLabel: config.modeLabel,
+          commandLabel: config.command.split('/').last,
+        ),
+      );
+
+      session = await client.execute(config.command);
+
+      void appendOutput(Uint8List data, {String? prefix}) {
+        final chunk = _decodeOutputChunk(data);
+        if (chunk.isEmpty || !mounted) return;
+        final normalizedChunk = prefix == null ? chunk : '$prefix$chunk';
+        logBuffer.write(normalizedChunk);
+        _syncSailinkStartLog(logBuffer.toString());
+      }
+
+      final stdoutFuture = session.stdout.listen((data) {
+        appendOutput(data);
+      }).asFuture<void>();
+      final stderrFuture = session.stderr.listen((data) {
+        final chunk = _decodeOutputChunk(data);
+        if (isBenignSailinkStderr(chunk)) {
+          hasBenignStderr = true;
+        } else {
+          hasNonBenignStderr = true;
+        }
+        appendOutput(data, prefix: formatSailinkStderrLabel(chunk));
+      }).asFuture<void>();
+
+      await session.done;
+      await Future.wait([stdoutFuture, stderrFuture]);
+
+      final exitCode = session.exitCode;
+      final exitLabel = exitCode == null
+          ? 'SAILINK start session finished.'
+          : exitCode == 0 && hasBenignStderr && !hasNonBenignStderr
+              ? 'SAILINK start session finished successfully with non-fatal warning.'
+              : exitCode == 0 && !hasNonBenignStderr
+                  ? 'SAILINK start session finished successfully.'
+              : 'SAILINK start session finished with exit code $exitCode.';
+      logBuffer.write('\n----------------------------------------\n$exitLabel');
+      _syncSailinkStartLog(logBuffer.toString());
+      _sailinkLogRunning.value = false;
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(exitLabel)),
+      );
+    } catch (e) {
+      _sailinkLogRunning.value = false;
+      client?.close();
+      final failedLog = _sailinkLiveLog.value.isEmpty
+          ? 'Service action failed: $e'
+          : '${_sailinkLiveLog.value}\n\nService action failed: $e';
+      _syncSailinkStartLog(failedLog);
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Service action failed: $e')),
+      );
+    } finally {
+      session?.close();
+      client?.close();
+      if (!mounted) return;
+      setState(() {
+        _isRunningServiceAction = false;
+        _isStartingSailink = false;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _getCurrentWifi();
+  }
+
+  @override
+  void dispose() {
+    _sailinkLogScrollController.dispose();
+    _sailinkLiveLog.dispose();
+    _sailinkLogRunning.dispose();
+    super.dispose();
   }
 
   Future<void> _showSetDateDialog() async {
