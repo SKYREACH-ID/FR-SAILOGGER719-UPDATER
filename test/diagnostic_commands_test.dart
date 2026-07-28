@@ -66,5 +66,29 @@ void main() {
         '[stderr] ',
       );
     });
+
+    test('builds combined failed sms summary', () {
+      expect(
+        buildFailedSmsSummary(
+          top10: 'top-line-1\ntop-line-2',
+          bottom10: 'bottom-line-1',
+          lineCount: '42 /var/Python/log/FailedSMS.log',
+        ),
+        'Count:\n'
+        '42 /var/Python/log/FailedSMS.log\n\n'
+        'Top 10:\n'
+        'top-line-1\n'
+        'top-line-2\n\n'
+        'Bottom 10:\n'
+        'bottom-line-1',
+      );
+    });
+
+    test('builds failed sms clear command with archive suffix', () {
+      expect(
+        buildFailedSmsClearCommand(DateTime(2026, 7, 8)),
+        'mv /var/Python/log/FailedSMS.log /var/Python/log/FailedSMS.log--2026-07-08 && cat /dev/null > /var/Python/log/FailedSMS.log',
+      );
+    });
   });
 }

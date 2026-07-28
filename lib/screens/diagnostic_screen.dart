@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:sailogger719/screens/diagnostic_commands.dart';
@@ -36,6 +37,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   bool _isKillingSailink = false;
   bool _isStartingSailink = false;
   bool _isSailinkLogDialogOpen = false;
+  bool _isDownloadingFailedSms = false;
+  bool _isClearingFailedSms = false;
+  bool _hasDownloadedFailedSms = false;
+  String _failedSmsDownloadPath = '';
 
   final ScrollController _sailinkLogScrollController = ScrollController();
   final ValueNotifier<String> _sailinkLiveLog = ValueNotifier<String>('');
@@ -45,10 +50,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   final List<String> _resultOrder = const [
     'OS DateTime',
     'Uptime',
-    'FailedSMS Top10',
-    'FailedSMS Bottom10',
+    'FailedSMS',
     'MessageReports.log',
-    'FailedSMS Count',
     'IOT-Service',
     'RPM1',
     'RPM2',
@@ -123,6 +126,183 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       return utf8.decode(bytes, allowMalformed: true).trim();
     } catch (_) {
       return latin1.decode(bytes, allowInvalid: true).trim();
+    }
+  }
+
+  Future<bool> _requestStoragePermission() async {
+    final status = await Permission.storage.status;
+    if (status.isGranted) return true;
+    if (status.isDenied || status.isRestricted) {
+      final result = await Permission.storage.request();
+      if (result.isGranted) return true;
+      if (result.isPermanentlyDenied) {
+        await openAppSettings();
+      }
+    }
+    return false;
+  }
+
+  Future<Directory> _resolveFailedSmsDownloadDirectory() async {
+    if (Platform.isAndroid) {
+      final directory = Directory('/storage/emulated/0/Download');
+      if (await directory.exists()) {
+        return directory;
+      }
+    }
+    final downloadDirectory = await getDownloadsDirectory();
+    if (downloadDirectory != null) {
+      return downloadDirectory;
+    }
+    return getApplicationDocumentsDirectory();
+  }
+
+  String _basename(String path) {
+    final normalized = path.trim();
+    final parts = normalized.split('/');
+    return parts.isEmpty ? normalized : parts.last;
+  }
+
+  Future<void> _downloadFailedSmsLogs() async {
+    if (_isRunning || _isDownloadingFailedSms || _isClearingFailedSms) return;
+    final granted = await _requestStoragePermission();
+    if (!granted) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Storage permission is required to download FailedSMS logs.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isDownloadingFailedSms = true;
+    });
+
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+
+      final rawList = await _run(
+        client,
+        'sh -lc "ls -1 ${failedSmsLogPath}* 2>/dev/null || true"',
+      );
+      final remotePaths = rawList
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .toList();
+      if (remotePaths.isEmpty) {
+        throw Exception('No FailedSMS log files found on device.');
+      }
+
+      final targetDirectory = await _resolveFailedSmsDownloadDirectory();
+      await targetDirectory.create(recursive: true);
+      final sftp = await client.sftp();
+      try {
+        for (final remotePath in remotePaths) {
+          final remoteFile = await sftp.open(
+            remotePath,
+            mode: SftpFileOpenMode.read,
+          );
+          final bytes = await remoteFile.readBytes();
+          await remoteFile.close();
+
+          final localName = _basename(remotePath);
+          final localFile = File('${targetDirectory.path}/$localName');
+          await localFile.writeAsBytes(bytes, flush: true);
+        }
+      } finally {
+        sftp.close();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _hasDownloadedFailedSms = true;
+        _failedSmsDownloadPath = targetDirectory.path;
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('FailedSMS logs downloaded to ${targetDirectory.path}'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('FailedSMS download failed: $e')),
+      );
+    } finally {
+      client?.close();
+      if (!mounted) return;
+      setState(() {
+        _isDownloadingFailedSms = false;
+      });
+    }
+  }
+
+  Future<void> _clearFailedSmsLog() async {
+    if (_isRunning || _isDownloadingFailedSms || _isClearingFailedSms || !_hasDownloadedFailedSms) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear FailedSMS.log'),
+        content: const Text(
+          'Rename the current FailedSMS.log with today\'s date and create a new empty log?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isClearingFailedSms = true;
+    });
+
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      await _run(client, buildFailedSmsClearCommand(DateTime.now()));
+      if (mounted) {
+        setState(() {
+          _results['FailedSMS'] = buildFailedSmsSummary(
+            top10: '(empty)',
+            bottom10: '(empty)',
+            lineCount: '0 $failedSmsLogPath',
+          );
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('FailedSMS.log has been cleared.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('FailedSMS clear failed: $e')),
+      );
+    } finally {
+      client?.close();
+      if (!mounted) return;
+      setState(() {
+        _isClearingFailedSms = false;
+      });
     }
   }
 
@@ -549,10 +729,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
 
       if (!quick) {
         steps.addAll([
-          {'title': 'FailedSMS Top10', 'cmd': 'head -n 10 /var/Python/log/FailedSMS.log'},
-          {'title': 'FailedSMS Bottom10', 'cmd': 'tail -n 10 /var/Python/log/FailedSMS.log'},
+          {'title': 'FailedSMS Top10', 'cmd': 'head -n 10 $failedSmsLogPath'},
+          {'title': 'FailedSMS Bottom10', 'cmd': 'tail -n 10 $failedSmsLogPath'},
           {'title': 'MessageReports.log', 'cmd': 'cat /var/Python/log/MessageReports.log | tail -n 50'},
-          {'title': 'FailedSMS Count', 'cmd': 'wc -l /var/Python/log/FailedSMS.log'},
+          {'title': 'FailedSMS Count', 'cmd': 'wc -l $failedSmsLogPath'},
           {'title': 'IOT-Service', 'cmd': 'cat /var/Python/Configs/IOT-Service.SKY'},
           {'title': 'RPM1', 'cmd': 'cat /var/Python/Status/RPM1.json'},
           {'title': 'RPM2', 'cmd': 'cat /var/Python/Status/RPM2.json'},
@@ -622,6 +802,14 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       }
 
       if (!quick) {
+        _results['FailedSMS'] = buildFailedSmsSummary(
+          top10: _results['FailedSMS Top10'] ?? '(empty)',
+          bottom10: _results['FailedSMS Bottom10'] ?? '(empty)',
+          lineCount: _results['FailedSMS Count'] ?? '0 $failedSmsLogPath',
+        );
+        _results.remove('FailedSMS Top10');
+        _results.remove('FailedSMS Bottom10');
+        _results.remove('FailedSMS Count');
         _results['SAT Status Summary'] =
             _parseSatStatusFromJson(_results['SAT Status'] ?? '');
       }
@@ -1089,9 +1277,100 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                                 fontSize: 11,
                               ),
                             ),
+                          if (k == 'FailedSMS' && _hasDownloadedFailedSms)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Text(
+                                'DOWNLOADED',
+                                style: TextStyle(
+                                  color: slapp_color.success,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                       children: [
+                        if (k == 'FailedSMS')
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: (_isDownloadingFailedSms || _isClearingFailedSms)
+                                        ? null
+                                        : _downloadFailedSmsLogs,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: slapp_color.primary,
+                                      foregroundColor: slapp_color.white,
+                                      shape: const RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.zero,
+                                      ),
+                                    ),
+                                    icon: _isDownloadingFailedSms
+                                        ? SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: slapp_color.white,
+                                            ),
+                                          )
+                                        : const Icon(Icons.download, size: 18),
+                                    label: Text(
+                                      _isDownloadingFailedSms
+                                          ? 'Downloading...'
+                                          : 'Download FailedSMS.log',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: (_hasDownloadedFailedSms &&
+                                            !_isDownloadingFailedSms &&
+                                            !_isClearingFailedSms)
+                                        ? _clearFailedSmsLog
+                                        : null,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: slapp_color.error,
+                                      side: BorderSide(color: slapp_color.error),
+                                      shape: const RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.zero,
+                                      ),
+                                    ),
+                                    child: _isClearingFailedSms
+                                        ? SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: slapp_color.error,
+                                            ),
+                                          )
+                                        : const Text('Clear FailedSMS.log'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (k == 'FailedSMS' && _failedSmsDownloadPath.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Saved to: $_failedSmsDownloadPath',
+                                style: TextStyle(
+                                  color: slapp_color.black_text,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),

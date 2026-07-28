@@ -10,6 +10,30 @@ class SailinkStartConfig {
   final String log;
 }
 
+const String failedSmsLogPath = '/var/Python/log/FailedSMS.log';
+
+String buildFailedSmsSummary({
+  required String top10,
+  required String bottom10,
+  required String lineCount,
+}) {
+  return 'Count:\n'
+      '${lineCount.trim()}\n\n'
+      'Top 10:\n'
+      '${top10.trim()}\n\n'
+      'Bottom 10:\n'
+      '${bottom10.trim()}';
+}
+
+String buildFailedSmsClearCommand(DateTime now) {
+  final year = now.year.toString().padLeft(4, '0');
+  final month = now.month.toString().padLeft(2, '0');
+  final day = now.day.toString().padLeft(2, '0');
+  final suffix = '$year-$month-$day';
+  return 'mv $failedSmsLogPath $failedSmsLogPath--$suffix && '
+      'cat /dev/null > $failedSmsLogPath';
+}
+
 bool isBenignSailinkStderr(String raw) {
   final normalized = raw.toLowerCase();
   return normalized.contains('warning') &&
