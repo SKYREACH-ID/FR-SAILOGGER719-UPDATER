@@ -90,5 +90,102 @@ void main() {
         'mv /var/Python/log/FailedSMS.log /var/Python/log/FailedSMS.log--2026-07-08 && cat /dev/null > /var/Python/log/FailedSMS.log',
       );
     });
+
+    test('builds failed sms download list command using file existence checks', () {
+      expect(
+        buildFailedSmsDownloadListCommand(),
+        'sh -lc \'for path in /var/Python/log/FailedSMS.log*; do [ -f "\$path" ] && printf "%s\\\\n" "\$path"; done\'',
+      );
+    });
+
+    test('builds failed sms download success summary', () {
+      expect(
+        buildFailedSmsDownloadSuccessMessage(2),
+        '2 FailedSMS log files downloaded.',
+      );
+      expect(
+        buildFailedSmsDownloadSuccessMessage(1),
+        '1 FailedSMS log file downloaded.',
+      );
+    });
+
+    test('builds failed sms download location details', () {
+      expect(
+        buildFailedSmsDownloadLocationDetails(
+          directoryPath: '/storage/emulated/0/Download',
+          fileNames: ['FailedSMS.log', 'FailedSMS.log--2026-07-16'],
+        ),
+        'Folder:\n'
+        '/storage/emulated/0/Download\n\n'
+        'Files:\n'
+        'FailedSMS.log\n'
+        'FailedSMS.log--2026-07-16',
+      );
+    });
+
+    test('requires manage external storage for public downloads on android 11+', () {
+      expect(
+        requiresManageExternalStorageForFailedSmsDownload(
+          isAndroid: true,
+          androidSdkInt: 30,
+        ),
+        isTrue,
+      );
+      expect(
+        requiresManageExternalStorageForFailedSmsDownload(
+          isAndroid: true,
+          androidSdkInt: 34,
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not require manage external storage off android 11+', () {
+      expect(
+        requiresManageExternalStorageForFailedSmsDownload(
+          isAndroid: true,
+          androidSdkInt: 29,
+        ),
+        isFalse,
+      );
+      expect(
+        requiresManageExternalStorageForFailedSmsDownload(
+          isAndroid: false,
+          androidSdkInt: 34,
+        ),
+        isFalse,
+      );
+    });
+
+    test('builds console password from date, device id, and hour multiplier', () {
+      expect(
+        buildConsolePassword(
+          now: DateTime(2026, 7, 27, 14),
+          deviceIdRaw: '50008',
+        ),
+        '320818',
+      );
+    });
+
+    test('builds console password after normalizing device id digits', () {
+      expect(
+        buildConsolePassword(
+          now: DateTime(2026, 7, 27, 14),
+          deviceIdRaw: ' ID-IoT: 50-008 ',
+        ),
+        '320818',
+      );
+    });
+
+    test('tracks console authorization for the current app session only', () {
+      ConsoleAccessSession.resetForTest();
+      expect(ConsoleAccessSession.isAuthorized, isFalse);
+
+      ConsoleAccessSession.authorize();
+      expect(ConsoleAccessSession.isAuthorized, isTrue);
+
+      ConsoleAccessSession.resetForTest();
+      expect(ConsoleAccessSession.isAuthorized, isFalse);
+    });
   });
 }

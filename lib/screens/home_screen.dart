@@ -9,8 +9,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sailogger719/screens/console_screen.dart';
+import 'package:sailogger719/screens/diagnostic_commands.dart';
 import 'package:sailogger719/screens/ssh_update.dart';
 import 'package:sailogger719/screens/diagnostic_screen.dart';
+import 'package:sailogger719/widgets/app_overlay_message.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 // import 'package:percent_indicator/circular_percent_indicator.dart';
 // import 'package:sailogger719/screens/ssh_check_.dart';
@@ -30,11 +33,36 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isCheckingVersion = false;
   bool _isUpdatingSatComm = false;
   bool _isLoadingUpdateOptions = false;
+  bool _isOpeningConsole = false;
   SatCommReadiness _satCommReadiness = SatCommReadiness.idle;
   String _satCommReadinessMessage = '';
   Timer? _satCommReadinessTimer;
   bool _isReadinessProbeRunning = false;
   int _satCommReadinessSecondsLeft = 0;
+
+  void _showOverlayMessage(
+    String message, {
+    Color? backgroundColor,
+    Color? iconColor,
+    bool showCloseButton = false,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    AppOverlayMessage.show(
+      context,
+      message: message,
+      backgroundColor: backgroundColor ?? const Color(0xEE232239),
+      borderColor: (backgroundColor ?? const Color(0xEE232239)).withValues(
+        alpha: 0.92,
+      ),
+      textColor: slapp_color.white,
+      iconColor: iconColor ?? slapp_color.white,
+      icon: Icons.info_outline,
+      showCloseButton: showCloseButton,
+      actionLabel: actionLabel,
+      onAction: onAction,
+    );
+  }
   String? _ssid = "";
   bool _isDeviceConnected = false;
   static const int _satCommReadinessTimeoutSeconds = 90;
@@ -93,16 +121,10 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            'Failed to load update list: $e',
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        'Failed to load update list: $e',
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
       return;
     }
@@ -114,16 +136,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     if (packages.isEmpty) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            'No update packages available.',
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        'No update packages available.',
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
       return;
     }
@@ -431,9 +447,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return true;
       }
-      await Future.delayed(Duration(milliseconds: 700));
+      await Future.delayed(const Duration(milliseconds: 700));
     }
-
     try {
       final socket =
           await Socket.connect(host, port, timeout: const Duration(seconds: 2));
@@ -449,51 +464,180 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!mounted) return false;
     final currentSsidText = lastSsid.isEmpty ? '-' : lastSsid;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        backgroundColor: slapp_color.error,
-        content: Text(
-          "Please Connect to SAILOGGER-HOTSPOT (SSID: $currentSsidText)",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ),
+    _showOverlayMessage(
+      "Please Connect to SAILOGGER-HOTSPOT (SSID: $currentSsidText)",
+      backgroundColor: slapp_color.error,
+      showCloseButton: true,
     );
     return false;
+  }
+
+  Future<String> _loadConsoleDeviceId() async {
+    SSHClient? client;
+    try {
+      client = SSHClient(
+        await SSHSocket.connect(host, port).timeout(const Duration(seconds: 5)),
+        username: username,
+        onPasswordRequest: () => password,
+      );
+      return await _runSshCommand(
+        client,
+        'cat /var/Python/Configs/ID-IoT.SKY',
+        timeout: const Duration(seconds: 4),
+      );
+    } finally {
+      client?.close();
+    }
+  }
+
+  Future<String?> _promptConsolePassword() async {
+    final controller = TextEditingController();
+    String? errorText;
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Console Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Masukkan password untuk membuka remote console.',
+                style: TextStyle(color: slapp_color.black_text),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  final value = controller.text.trim();
+                  if (value.isEmpty) {
+                    setDialogState(() {
+                      errorText = 'Password wajib diisi.';
+                    });
+                    return;
+                  }
+                  Navigator.pop(dialogContext, value);
+                },
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  errorText: errorText,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isEmpty) {
+                  setDialogState(() {
+                    errorText = 'Password wajib diisi.';
+                  });
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Open'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _openConsole() async {
+    if (_isOpeningConsole) return;
+    if (!_isDeviceConnected && !await _isDeviceReachable()) {
+      if (!mounted) return;
+      _showOverlayMessage(
+        'Device belum terhubung. Sambungkan ke Wi-Fi device lebih dulu.',
+        backgroundColor: slapp_color.error,
+      );
+      return;
+    }
+
+    if (!ConsoleAccessSession.isAuthorized) {
+      setState(() {
+        _isOpeningConsole = true;
+      });
+      try {
+        final deviceId = await _loadConsoleDeviceId();
+        if (!mounted) return;
+        final inputPassword = await _promptConsolePassword();
+        if (!mounted || inputPassword == null) return;
+
+        final expectedPassword = buildConsolePassword(
+          now: DateTime.now(),
+          deviceIdRaw: deviceId,
+        );
+        if (inputPassword != expectedPassword) {
+          _showOverlayMessage(
+            'Password Console salah.',
+            backgroundColor: slapp_color.error,
+          );
+          return;
+        }
+        ConsoleAccessSession.authorize();
+      } catch (e) {
+        if (!mounted) return;
+        _showOverlayMessage(
+          'Gagal memvalidasi Console: $e',
+          backgroundColor: slapp_color.error,
+        );
+        return;
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isOpeningConsole = false;
+          });
+        }
+      }
+    }
+
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConsoleScreen(
+          host: host,
+          port: port,
+          username: username,
+          password: password,
+        ),
+      ),
+    );
   }
 
   Future<void> checkSpecialVersionCondition() async {
     if (_isCheckingVersion) return;
     if (_satCommReadiness == SatCommReadiness.switching ||
         _satCommReadiness == SatCommReadiness.waiting) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            _satCommReadinessMessage.isEmpty
-                ? "SAT-Comm masih proses inisialisasi. Coba lagi sebentar."
-                : _satCommReadinessMessage,
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        _satCommReadinessMessage.isEmpty
+            ? "SAT-Comm masih proses inisialisasi. Coba lagi sebentar."
+            : _satCommReadinessMessage,
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
       return;
     }
 
     if (_satCommReadiness == SatCommReadiness.failed) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            "SAT-Comm belum siap. Tekan Coba Lagi dulu.",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        "SAT-Comm belum siap. Tekan Coba Lagi dulu.",
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
       return;
     }
@@ -514,16 +658,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final isSshReady = await _isSshReady();
     if (!isSshReady) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            backgroundColor: slapp_color.error,
-            content: Text(
-              "Device belum siap (SSH belum tersambung). Coba lagi beberapa detik.",
-              style: TextStyle(color: slapp_color.white),
-            ),
-            showCloseIcon: true,
-            closeIconColor: slapp_color.white,
-          ),
+        _showOverlayMessage(
+          "Device belum siap (SSH belum tersambung). Coba lagi beberapa detik.",
+          backgroundColor: slapp_color.error,
+          showCloseButton: true,
         );
         setState(() {
           _isCheckingVersion = false;
@@ -640,16 +778,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final errorMessage = e is TimeoutException
           ? "Device check timeout. Coba lagi beberapa detik."
           : "Gagal check version: $e";
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            errorMessage,
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        errorMessage,
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
     } finally {
       client?.close();
@@ -753,11 +885,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!mounted || selected == null) return;
     if (currentMode == selected) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('SAT-Comm sudah pada mode $selected'),
-        ),
-      );
+      _showOverlayMessage('SAT-Comm sudah pada mode $selected');
       return;
     }
     await _updateSatComm(selected);
@@ -801,16 +929,10 @@ class _HomeScreenState extends State<HomeScreen> {
       await _runSshCommand(client, command);
 
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.success,
-          content: Text(
-            "SAT-Comm berhasil diubah ke $mode. Menunggu device siap...",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        "SAT-Comm berhasil diubah ke $mode. Menunggu device siap...",
+        backgroundColor: slapp_color.success,
+        showCloseButton: true,
       );
       await _startSatCommReadinessPolling(forceRestart: true);
     } catch (e) {
@@ -820,16 +942,10 @@ class _HomeScreenState extends State<HomeScreen> {
         SatCommReadiness.failed,
         message: "Gagal ubah SAT-Comm: $e",
       );
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          backgroundColor: slapp_color.error,
-          content: Text(
-            "Gagal ubah SAT-Comm: $e",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ),
+      _showOverlayMessage(
+        "Gagal ubah SAT-Comm: $e",
+        backgroundColor: slapp_color.error,
+        showCloseButton: true,
       );
     } finally {
       client?.close();
@@ -1236,6 +1352,61 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+                child: ElevatedButton(
+                  style: ButtonStyle(
+                    shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                      const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      ),
+                    ),
+                    backgroundColor: MaterialStateProperty.resolveWith<Color>(
+                      (Set<MaterialState> states) {
+                        if (_isOpeningConsole ||
+                            states.contains(MaterialState.disabled)) {
+                          return slapp_color.sixtiary;
+                        }
+                        return slapp_color.primary;
+                      },
+                    ),
+                    elevation: MaterialStateProperty.resolveWith<double>(
+                      (Set<MaterialState> states) => 0,
+                    ),
+                  ),
+                  onPressed: _isOpeningConsole ? null : _openConsole,
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _isOpeningConsole
+                            ? SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: slapp_color.white,
+                                ),
+                              )
+                            : Icon(
+                                Icons.terminal,
+                                color: slapp_color.white,
+                              ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'CONSOLE',
+                          style: const TextStyle(
+                            color: slapp_color.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

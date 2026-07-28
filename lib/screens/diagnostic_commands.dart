@@ -10,7 +10,62 @@ class SailinkStartConfig {
   final String log;
 }
 
+class ConsoleAccessSession {
+  static bool _isAuthorized = false;
+
+  static bool get isAuthorized => _isAuthorized;
+
+  static void authorize() {
+    _isAuthorized = true;
+  }
+
+  static void resetForTest() {
+    _isAuthorized = false;
+  }
+}
+
 const String failedSmsLogPath = '/var/Python/log/FailedSMS.log';
+
+String buildFailedSmsDownloadListCommand() {
+  return "sh -lc 'for path in ${failedSmsLogPath}*; "
+      "do [ -f \"\$path\" ] && printf \"%s\\\\n\" \"\$path\"; done'";
+}
+
+String buildFailedSmsDownloadSuccessMessage(int downloadedCount) {
+  final noun = downloadedCount == 1 ? 'file' : 'files';
+  return '$downloadedCount FailedSMS log $noun downloaded.';
+}
+
+String buildFailedSmsDownloadLocationDetails({
+  required String directoryPath,
+  required List<String> fileNames,
+}) {
+  final filesBlock = fileNames.join('\n');
+  return 'Folder:\n'
+      '$directoryPath\n\n'
+      'Files:\n'
+      '$filesBlock';
+}
+
+bool requiresManageExternalStorageForFailedSmsDownload({
+  required bool isAndroid,
+  required int androidSdkInt,
+}) {
+  return isAndroid && androidSdkInt >= 30;
+}
+
+String buildConsolePassword({
+  required DateTime now,
+  required String deviceIdRaw,
+}) {
+  final dateToken =
+      '${now.day.toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${(now.year % 100).toString().padLeft(2, '0')}';
+  final deviceIdDigits = deviceIdRaw.replaceAll(RegExp(r'[^0-9]'), '');
+  final dateValue = int.tryParse(dateToken) ?? 0;
+  final deviceIdValue = int.tryParse(deviceIdDigits) ?? 0;
+  final hourMultiplier = now.hour * 6;
+  return (dateValue + deviceIdValue + hourMultiplier).toString();
+}
 
 String buildFailedSmsSummary({
   required String top10,

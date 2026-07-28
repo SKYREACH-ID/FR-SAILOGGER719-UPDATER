@@ -11,6 +11,7 @@ import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/screens/home_screen.dart';
+import 'package:sailogger719/widgets/app_overlay_message.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -48,6 +49,23 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   final String username = 'skyflix';
   final String password = 'byskyreach';
   final Dio _dio = Dio();
+
+  void _showOverlayMessage(
+    String message, {
+    Color? backgroundColor,
+    bool showCloseButton = false,
+  }) {
+    final color = backgroundColor ?? const Color(0xEE232239);
+    AppOverlayMessage.show(
+      context,
+      message: message,
+      backgroundColor: color,
+      borderColor: color.withValues(alpha: 0.92),
+      textColor: slapp_color.white,
+      iconColor: slapp_color.white,
+      showCloseButton: showCloseButton,
+    );
+  }
   bool is_download = false;
   bool is_install = false;
   bool is_transfer = false;
@@ -244,39 +262,27 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         var result = await client.run(command);
         print('Result: $result');
       } catch (e) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        _showOverlayMessage(
+          'Error executing command: $e',
           backgroundColor: slapp_color.error,
-          content: Text(
-            'Error executing command: $e',
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
+          showCloseButton: true,
+        );
       } finally {
         client.close();
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        _showOverlayMessage(
+          "GPS Refresh Completed",
           backgroundColor: slapp_color.success,
-          content: Text(
-            "GPS Refresh Completed",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
+          showCloseButton: true,
+        );
         _progressNotifier.value = "GPS Refresh Completed";
         await Future.delayed(Duration(seconds: 3));
       }
     } catch (e) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      _showOverlayMessage(
+        "Cannot Connect SSH: $e",
         backgroundColor: slapp_color.error,
-        content: Text(
-          "Cannot Connect SSH: $e",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
+        showCloseButton: true,
+      );
     }
   }
 
@@ -311,26 +317,18 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
           }
         }
       } catch (e) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        _showOverlayMessage(
+          'Error executing commands: $e',
           backgroundColor: slapp_color.error,
-          content: Text(
-            'Error executing commands: $e',
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
+          showCloseButton: true,
+        );
       } finally {
         client.close();
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        _showOverlayMessage(
+          "Install Completed",
           backgroundColor: slapp_color.success,
-          content: Text(
-            "Install Completed",
-            style: TextStyle(color: slapp_color.white),
-          ),
-          showCloseIcon: true,
-          closeIconColor: slapp_color.white,
-        ));
+          showCloseButton: true,
+        );
         _progressNotifier.value = "Install Completed";
         await Future.delayed(Duration(seconds: 3));
         setState(() {
@@ -340,15 +338,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         removeFile(_filePath);
       }
     } catch (e) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      _showOverlayMessage(
+        "Cannot Conenct SSH: $e",
         backgroundColor: slapp_color.error,
-        content: Text(
-          "Cannot Conenct SSH: $e",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
+        showCloseButton: true,
+      );
     }
   }
 
@@ -533,15 +527,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         is_install = false;
       });
       print('An error occurred: $e');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      _showOverlayMessage(
+        "$e",
         backgroundColor: slapp_color.error,
-        content: Text(
-          "$e",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
+        showCloseButton: true,
+      );
     } finally {
       print('Closing connection...');
     }
@@ -564,26 +554,6 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       await file.readBytes();
       await file.close();
 
-      // Compare file content with the given string
-      // if (fileContent.contains('7.19')) {
-      //   print('File content matches the expected content!');
-      //   ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-      //     backgroundColor: slapp_color.primary,
-      //     content: Text(
-      //       "SAILOGGER-NEO IS ALREADY ON VERSION 7.19",
-      //       style: TextStyle(color: slapp_color.white),
-      //     ),
-      //     showCloseIcon: true,
-      //     closeIconColor: slapp_color.white,
-      //   ));
-      //   removeFile(_filePath);
-      //   setState(() {
-      //     install_satisfied = true;
-      //   });
-      // } else {
-      //   print('File content not match expected content!');
-      //   uploadFileToSSHServer();
-      // }
       uploadFileToSSHServer();
       // Close the connection
       client.close();
@@ -715,29 +685,21 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
       );
       copyFileToPublicDir(filename);
       print('Download completed: $filePath');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      _showOverlayMessage(
+        "Download completed: $filePath",
         backgroundColor: slapp_color.success,
-        content: Text(
-          "Download completed: $filePath",
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
+        showCloseButton: true,
+      );
       setState(() {
         is_download = false;
       });
     } catch (e) {
       print('Download failed: $e');
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+      _showOverlayMessage(
+        'Download failed: Check your internet connection',
         backgroundColor: slapp_color.error,
-        content: Text(
-          'Download failed: Check your internet connection',
-          style: TextStyle(color: slapp_color.white),
-        ),
-        showCloseIcon: true,
-        closeIconColor: slapp_color.white,
-      ));
+        showCloseButton: true,
+      );
       setState(() {
         error_download = true;
       });
@@ -834,15 +796,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
   void onSSIDChange(String? newSSID) {
     Navigator.pushReplacement(
         context, MaterialPageRoute(builder: (context) => HomeScreen()));
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+    _showOverlayMessage(
+      "Install Failed, Please Stay Connect to SAILOGGER-HOTSPOT",
       backgroundColor: slapp_color.error,
-      content: Text(
-        "Install Failed, Please Stay Connect to SAILOGGER-HOTSPOT",
-        style: TextStyle(color: slapp_color.white),
-      ),
-      showCloseIcon: true,
-      closeIconColor: slapp_color.white,
-    ));
+      showCloseButton: true,
+    );
   }
 
   @override
@@ -901,15 +859,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                   if (_filePath.length > 0) {
                     removeFile(_filePath);
                   } else {
-                    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+                    _showOverlayMessage(
+                      "No Installer File Found",
                       backgroundColor: slapp_color.error,
-                      content: Text(
-                        "No Installer File Found",
-                        style: TextStyle(color: slapp_color.white),
-                      ),
-                      showCloseIcon: true,
-                      closeIconColor: slapp_color.white,
-                    ));
+                      showCloseButton: true,
+                    );
                   }
                 }
               },
@@ -1319,30 +1273,18 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                 ),
                                 onPressed: () async {
                                   if (_filePath.length > 0) {
-                                    ScaffoldMessenger.maybeOf(context)
-                                        ?.showSnackBar(SnackBar(
+                                    _showOverlayMessage(
+                                      "Download Has Been Completed, Please Connect to SAILOGGER-HOTSPOT and Install",
                                       backgroundColor: slapp_color.primary,
-                                      content: Text(
-                                        "Download Has Been Completed, Please Connect to SAILOGGER-HOTSPOT and Install",
-                                        style:
-                                            TextStyle(color: slapp_color.white),
-                                      ),
-                                      showCloseIcon: true,
-                                      closeIconColor: slapp_color.white,
-                                    ));
+                                      showCloseButton: true,
+                                    );
                                   } else {
                                     if (is_download) {
-                                      ScaffoldMessenger.maybeOf(context)
-                                          ?.showSnackBar(SnackBar(
+                                      _showOverlayMessage(
+                                        "Download is ON-PROGGRESS",
                                         backgroundColor: slapp_color.error,
-                                        content: Text(
-                                          "Download is ON-PROGGRESS",
-                                          style: TextStyle(
-                                              color: slapp_color.white),
-                                        ),
-                                        showCloseIcon: true,
-                                        closeIconColor: slapp_color.white,
-                                      ));
+                                        showCloseButton: true,
+                                      );
                                     } else {
                                       downloadFile(
                                           _url + down_link, down_filename);
@@ -1454,29 +1396,17 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       (_commands.length > 0)) {
                                     // Compare the current SSID with the desired one
                                     if (is_install) {
-                                      ScaffoldMessenger.maybeOf(context)
-                                          ?.showSnackBar(SnackBar(
+                                      _showOverlayMessage(
+                                        "Update is ON-PROGGRESS, Please Wait.",
                                         backgroundColor: slapp_color.error,
-                                        content: Text(
-                                          "Update is ON-PROGGRESS, Please Wait.",
-                                          style: TextStyle(
-                                              color: slapp_color.white),
-                                        ),
-                                        showCloseIcon: true,
-                                        closeIconColor: slapp_color.white,
-                                      ));
+                                        showCloseButton: true,
+                                      );
                                     } else if (install_completed) {
-                                      ScaffoldMessenger.maybeOf(context)
-                                          ?.showSnackBar(SnackBar(
+                                      _showOverlayMessage(
+                                        "Sailogger already update to SAILOGGER-$_selectedVersionLabel",
                                         backgroundColor: slapp_color.primary,
-                                        content: Text(
-                                          "Sailogger already update to SAILOGGER-$_selectedVersionLabel",
-                                          style: TextStyle(
-                                              color: slapp_color.white),
-                                        ),
-                                        showCloseIcon: true,
-                                        closeIconColor: slapp_color.white,
-                                      ));
+                                        showCloseButton: true,
+                                      );
                                     } else {
                                       _progressNotifier.value =
                                           "Checking Device Connection...";
@@ -1505,17 +1435,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                           paths: _cleanupPaths,
                                         );
                                       } else {
-                                        ScaffoldMessenger.maybeOf(context)
-                                            ?.showSnackBar(SnackBar(
+                                        _showOverlayMessage(
+                                          "Please Connect to SAILOGGER-HOTSPOT",
                                           backgroundColor: slapp_color.error,
-                                          content: Text(
-                                            "Please Connect to SAILOGGER-HOTSPOT",
-                                            style: TextStyle(
-                                                color: slapp_color.white),
-                                          ),
-                                          showCloseIcon: true,
-                                          closeIconColor: slapp_color.white,
-                                        ));
+                                          showCloseButton: true,
+                                        );
                                         setState(() {
                                           is_install = false;
                                           is_transfer = false;
@@ -1523,17 +1447,11 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                                       }
                                     }
                                   } else {
-                                    ScaffoldMessenger.maybeOf(context)
-                                        ?.showSnackBar(SnackBar(
+                                    _showOverlayMessage(
+                                      "Please Download Update First",
                                       backgroundColor: slapp_color.error,
-                                      content: Text(
-                                        "Please Download Update First",
-                                        style:
-                                            TextStyle(color: slapp_color.white),
-                                      ),
-                                      showCloseIcon: true,
-                                      closeIconColor: slapp_color.white,
-                                    ));
+                                      showCloseButton: true,
+                                    );
                                   }
                                 },
                                 child: Padding(

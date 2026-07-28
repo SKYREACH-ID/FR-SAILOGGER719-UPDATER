@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:sailogger719/screens/diagnostic_commands.dart';
+import 'package:sailogger719/widgets/app_overlay_message.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 class DiagnosticScreen extends StatefulWidget {
@@ -41,10 +42,29 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   bool _isClearingFailedSms = false;
   bool _hasDownloadedFailedSms = false;
   String _failedSmsDownloadPath = '';
+  List<String> _failedSmsDownloadedFiles = const [];
 
   final ScrollController _sailinkLogScrollController = ScrollController();
   final ValueNotifier<String> _sailinkLiveLog = ValueNotifier<String>('');
   final ValueNotifier<bool> _sailinkLogRunning = ValueNotifier<bool>(false);
+
+  void _showOverlayMessage(
+    String message, {
+    Color backgroundColor = const Color(0xEE232239),
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    AppOverlayMessage.show(
+      context,
+      message: message,
+      backgroundColor: backgroundColor,
+      borderColor: backgroundColor.withValues(alpha: 0.92),
+      textColor: slapp_color.white,
+      iconColor: slapp_color.white,
+      actionLabel: actionLabel,
+      onAction: onAction,
+    );
+  }
 
   final Map<String, String> _results = {};
   final List<String> _resultOrder = const [
@@ -130,10 +150,17 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   }
 
   Future<bool> _requestStoragePermission() async {
-    final status = await Permission.storage.status;
+    final permission =
+        requiresManageExternalStorageForFailedSmsDownload(
+          isAndroid: Platform.isAndroid,
+          androidSdkInt: 30,
+        )
+            ? Permission.manageExternalStorage
+            : Permission.storage;
+    final status = await permission.status;
     if (status.isGranted) return true;
-    if (status.isDenied || status.isRestricted) {
-      final result = await Permission.storage.request();
+    if (status.isDenied || status.isRestricted || status.isLimited) {
+      final result = await permission.request();
       if (result.isGranted) return true;
       if (result.isPermanentlyDenied) {
         await openAppSettings();
@@ -162,13 +189,37 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     return parts.isEmpty ? normalized : parts.last;
   }
 
+  Future<void> _showFailedSmsDownloadLocationDialog() async {
+    if (_failedSmsDownloadPath.isEmpty || _failedSmsDownloadedFiles.isEmpty) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('FailedSMS Download Location'),
+        content: SelectableText(
+          buildFailedSmsDownloadLocationDetails(
+            directoryPath: _failedSmsDownloadPath,
+            fileNames: _failedSmsDownloadedFiles,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _downloadFailedSmsLogs() async {
     if (_isRunning || _isDownloadingFailedSms || _isClearingFailedSms) return;
     final granted = await _requestStoragePermission();
     if (!granted) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('Storage permission is required to download FailedSMS logs.')),
+      _showOverlayMessage(
+        'Storage permission is required to download FailedSMS logs.',
       );
       return;
     }
@@ -185,10 +236,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         onPasswordRequest: () => password,
       );
 
-      final rawList = await _run(
-        client,
-        'sh -lc "ls -1 ${failedSmsLogPath}* 2>/dev/null || true"',
-      );
+      final rawList = await _run(client, buildFailedSmsDownloadListCommand());
       final remotePaths = rawList
           .split('\n')
           .map((line) => line.trim())
@@ -201,18 +249,31 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       final targetDirectory = await _resolveFailedSmsDownloadDirectory();
       await targetDirectory.create(recursive: true);
       final sftp = await client.sftp();
+      final downloadedFiles = <String>[];
       try {
+        var downloadedCount = 0;
         for (final remotePath in remotePaths) {
-          final remoteFile = await sftp.open(
-            remotePath,
-            mode: SftpFileOpenMode.read,
-          );
-          final bytes = await remoteFile.readBytes();
-          await remoteFile.close();
+          try {
+            final remoteFile = await sftp.open(
+              remotePath,
+              mode: SftpFileOpenMode.read,
+            );
+            final bytes = await remoteFile.readBytes();
+            await remoteFile.close();
 
-          final localName = _basename(remotePath);
-          final localFile = File('${targetDirectory.path}/$localName');
-          await localFile.writeAsBytes(bytes, flush: true);
+            final localName = _basename(remotePath);
+            final localFile = File('${targetDirectory.path}/$localName');
+            await localFile.writeAsBytes(bytes, flush: true);
+            downloadedCount++;
+            downloadedFiles.add(localName);
+          } on SftpStatusError catch (e) {
+            if (e.code != 2) rethrow;
+          }
+        }
+        if (downloadedCount == 0) {
+          throw Exception(
+            'No FailedSMS log files were readable on device.',
+          );
         }
       } finally {
         sftp.close();
@@ -222,17 +283,16 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       setState(() {
         _hasDownloadedFailedSms = true;
         _failedSmsDownloadPath = targetDirectory.path;
+        _failedSmsDownloadedFiles = List.unmodifiable(downloadedFiles);
       });
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text('FailedSMS logs downloaded to ${targetDirectory.path}'),
-        ),
+      _showOverlayMessage(
+        buildFailedSmsDownloadSuccessMessage(downloadedFiles.length),
+        actionLabel: 'LIHAT LOKASI',
+        onAction: _showFailedSmsDownloadLocationDialog,
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('FailedSMS download failed: $e')),
-      );
+      _showOverlayMessage('FailedSMS download failed: $e');
     } finally {
       client?.close();
       if (!mounted) return;
@@ -289,14 +349,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         });
       }
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('FailedSMS.log has been cleared.')),
-      );
+      _showOverlayMessage('FailedSMS.log has been cleared.');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('FailedSMS clear failed: $e')),
-      );
+      _showOverlayMessage('FailedSMS clear failed: $e');
     } finally {
       client?.close();
       if (!mounted) return;
@@ -363,14 +419,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         });
       }
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(successMessage)),
-      );
+      _showOverlayMessage(successMessage);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Service action failed: $e')),
-      );
+      _showOverlayMessage('Service action failed: $e');
     } finally {
       client?.close();
       await Future.delayed(const Duration(milliseconds: 700));
@@ -501,7 +553,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                     style: const TextStyle(
                       color: Color(0xFF98F5BA),
                       fontFamily: 'monospace',
-                      fontSize: 12,
+                      fontSize: 7,
                       height: 1.35,
                     ),
                   ),
@@ -900,9 +952,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       _syncSailinkStartLog(logBuffer.toString());
       _sailinkLogRunning.value = false;
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(exitLabel)),
-      );
+      _showOverlayMessage(exitLabel);
     } catch (e) {
       _sailinkLogRunning.value = false;
       client?.close();
@@ -911,9 +961,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           : '${_sailinkLiveLog.value}\n\nService action failed: $e';
       _syncSailinkStartLog(failedLog);
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Service action failed: $e')),
-      );
+      _showOverlayMessage('Service action failed: $e');
     } finally {
       session?.close();
       client?.close();
