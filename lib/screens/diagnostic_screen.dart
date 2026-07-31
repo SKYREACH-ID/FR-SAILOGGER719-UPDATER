@@ -6,10 +6,10 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/material.dart';
 import 'package:network_info_plus/network_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/constant/colors.dart';
 import 'package:sailogger719/screens/diagnostic_commands.dart';
+import 'package:sailogger719/services/failed_sms_storage_service.dart';
 import 'package:sailogger719/widgets/app_overlay_message.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
@@ -43,6 +43,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   bool _hasDownloadedFailedSms = false;
   String _failedSmsDownloadPath = '';
   List<String> _failedSmsDownloadedFiles = const [];
+  List<FailedSmsSavedFile> _failedSmsSavedEntries = const [];
+  FailedSmsDownloadSession? _activeFailedSmsDownloadSession;
+  final FailedSmsStorageService _failedSmsStorageService =
+      FailedSmsStorageService();
 
   final ScrollController _sailinkLogScrollController = ScrollController();
   final ValueNotifier<String> _sailinkLiveLog = ValueNotifier<String>('');
@@ -150,13 +154,16 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   }
 
   Future<bool> _requestStoragePermission() async {
-    final permission =
-        requiresManageExternalStorageForFailedSmsDownload(
-          isAndroid: Platform.isAndroid,
-          androidSdkInt: 30,
-        )
-            ? Permission.manageExternalStorage
-            : Permission.storage;
+    if (!Platform.isAndroid) return true;
+    final androidSdkInt = await _failedSmsStorageService.getAndroidSdkInt();
+    if (androidSdkInt == null ||
+        !requiresLegacyWriteExternalStorageForFailedSmsDownload(
+          isAndroid: true,
+          androidSdkInt: androidSdkInt,
+        )) {
+      return true;
+    }
+    final permission = Permission.storage;
     final status = await permission.status;
     if (status.isGranted) return true;
     if (status.isDenied || status.isRestricted || status.isLimited) {
@@ -169,24 +176,20 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     return false;
   }
 
-  Future<Directory> _resolveFailedSmsDownloadDirectory() async {
-    if (Platform.isAndroid) {
-      final directory = Directory('/storage/emulated/0/Download');
-      if (await directory.exists()) {
-        return directory;
-      }
-    }
-    final downloadDirectory = await getDownloadsDirectory();
-    if (downloadDirectory != null) {
-      return downloadDirectory;
-    }
-    return getApplicationDocumentsDirectory();
+  String _basename(String path) {
+    return sanitizeFailedSmsDownloadFileName(path);
   }
 
-  String _basename(String path) {
-    final normalized = path.trim();
-    final parts = normalized.split('/');
-    return parts.isEmpty ? normalized : parts.last;
+  Future<void> _openLatestFailedSmsFile() async {
+    final latestFile =
+        _failedSmsSavedEntries.isEmpty ? null : _failedSmsSavedEntries.last;
+    if (latestFile == null) return;
+    try {
+      await _failedSmsStorageService.openFile(latestFile);
+    } on FailedSmsStorageException catch (error) {
+      if (!mounted) return;
+      _showOverlayMessage('FailedSMS open failed: ${error.message}');
+    }
   }
 
   Future<void> _showFailedSmsDownloadLocationDialog() async {
@@ -204,6 +207,14 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           ),
         ),
         actions: [
+          if (_failedSmsSavedEntries.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _openLatestFailedSmsFile();
+              },
+              child: const Text('Buka File'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
@@ -229,9 +240,11 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     });
 
     SSHClient? client;
+    final downloadedFiles = <FailedSmsSavedFile>[];
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -246,26 +259,57 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         throw Exception('No FailedSMS log files found on device.');
       }
 
-      final targetDirectory = await _resolveFailedSmsDownloadDirectory();
-      await targetDirectory.create(recursive: true);
       final sftp = await client.sftp();
-      final downloadedFiles = <String>[];
       try {
         var downloadedCount = 0;
         for (final remotePath in remotePaths) {
+          final localName = _basename(remotePath);
           try {
             final remoteFile = await sftp.open(
               remotePath,
               mode: SftpFileOpenMode.read,
             );
-            final bytes = await remoteFile.readBytes();
-            await remoteFile.close();
-
-            final localName = _basename(remotePath);
-            final localFile = File('${targetDirectory.path}/$localName');
-            await localFile.writeAsBytes(bytes, flush: true);
-            downloadedCount++;
-            downloadedFiles.add(localName);
+            FailedSmsDownloadSession? session;
+            var completed = false;
+            var hasData = false;
+            try {
+              session = await _failedSmsStorageService.startDownload(
+                fileName: localName,
+                appFolderName: failedSmsDownloadFolderName,
+              );
+              _activeFailedSmsDownloadSession = session;
+              await for (final chunk in remoteFile.read()) {
+                if (chunk.isEmpty) continue;
+                hasData = true;
+                await _failedSmsStorageService.writeChunk(session, chunk);
+              }
+              if (!hasData) {
+                throw const FailedSmsStorageException(
+                  'Downloaded file is empty.',
+                );
+              }
+              final savedFile = await _failedSmsStorageService.finishDownload(
+                session,
+              );
+              downloadedCount++;
+              downloadedFiles.add(savedFile);
+              completed = true;
+            } catch (error) {
+              if (session != null && !completed) {
+                await _failedSmsStorageService.abortDownload(
+                  session,
+                  reason: error is FailedSmsStorageException
+                      ? 'write_failed'
+                      : 'cancelled',
+                );
+              }
+              rethrow;
+            } finally {
+              _activeFailedSmsDownloadSession = null;
+              try {
+                await remoteFile.close();
+              } catch (_) {}
+            }
           } on SftpStatusError catch (e) {
             if (e.code != 2) rethrow;
           }
@@ -282,14 +326,32 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       if (!mounted) return;
       setState(() {
         _hasDownloadedFailedSms = true;
-        _failedSmsDownloadPath = targetDirectory.path;
-        _failedSmsDownloadedFiles = List.unmodifiable(downloadedFiles);
+        _failedSmsDownloadPath = downloadedFiles.last.relativePath;
+        _failedSmsDownloadedFiles = List.unmodifiable(
+          downloadedFiles.map((file) => file.displayName),
+        );
+        _failedSmsSavedEntries = List.unmodifiable(downloadedFiles);
       });
+      final lastFile = downloadedFiles.last;
       _showOverlayMessage(
-        buildFailedSmsDownloadSuccessMessage(downloadedFiles.length),
-        actionLabel: 'LIHAT LOKASI',
-        onAction: _showFailedSmsDownloadLocationDialog,
+        downloadedFiles.length == 1
+            ? '${lastFile.displayName} saved to ${lastFile.relativePath}.'
+            : '${buildFailedSmsDownloadSuccessMessage(downloadedFiles.length)} '
+                'Last file: ${lastFile.displayName}. '
+                'Saved to ${lastFile.relativePath}.',
+        actionLabel: 'BUKA FILE',
+        onAction: _openLatestFailedSmsFile,
       );
+    } on SocketException {
+      if (!mounted) return;
+      _showOverlayMessage(
+        'FailedSMS download failed: terminal connection was interrupted.',
+      );
+      return;
+    } on FailedSmsStorageException catch (e) {
+      if (!mounted) return;
+      _showOverlayMessage('FailedSMS download failed: ${e.message}');
+      return;
     } catch (e) {
       if (!mounted) return;
       _showOverlayMessage('FailedSMS download failed: $e');
@@ -303,7 +365,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
   }
 
   Future<void> _clearFailedSmsLog() async {
-    if (_isRunning || _isDownloadingFailedSms || _isClearingFailedSms || !_hasDownloadedFailedSms) {
+    if (_isRunning ||
+        _isDownloadingFailedSms ||
+        _isClearingFailedSms ||
+        !_hasDownloadedFailedSms) {
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -334,7 +399,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     SSHClient? client;
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -376,7 +442,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       _isKillingSailink = isKillAction;
       _isStartingSailink = isStartAction;
     });
-    final actionLabel = isKillAction ? 'Stopping SAILINK...' : 'Starting SAILINK...';
+    final actionLabel =
+        isKillAction ? 'Stopping SAILINK...' : 'Starting SAILINK...';
     if (mounted) {
       showDialog<void>(
         context: context,
@@ -408,7 +475,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     SSHClient? client;
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -510,18 +578,25 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
             ValueListenableBuilder<bool>(
               valueListenable: _sailinkLogRunning,
               builder: (context, running, _) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: running ? const Color(0xFF10381E) : const Color(0xFF24303D),
+                  color: running
+                      ? const Color(0xFF10381E)
+                      : const Color(0xFF24303D),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: running ? const Color(0xFF2DD36F) : const Color(0xFF51606F),
+                    color: running
+                        ? const Color(0xFF2DD36F)
+                        : const Color(0xFF51606F),
                   ),
                 ),
                 child: Text(
                   running ? 'RUNNING' : 'DONE',
                   style: TextStyle(
-                    color: running ? const Color(0xFF98F5BA) : const Color(0xFFC9D4DF),
+                    color: running
+                        ? const Color(0xFF98F5BA)
+                        : const Color(0xFFC9D4DF),
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.7,
@@ -570,7 +645,9 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
               child: Text(
                 running ? 'Process Running...' : 'Close',
                 style: TextStyle(
-                  color: running ? const Color(0xFF6E7D8A) : const Color(0xFF98F5BA),
+                  color: running
+                      ? const Color(0xFF6E7D8A)
+                      : const Color(0xFF98F5BA),
                 ),
               ),
             ),
@@ -739,8 +816,18 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       final second = int.parse(s.substring(12, 14));
       final dt = DateTime(year, month, day, hour, minute, second);
       const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
       ];
       const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       final wd = weekdays[dt.weekday - 1];
@@ -769,7 +856,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     SSHClient? client;
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -782,10 +870,19 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       if (!quick) {
         steps.addAll([
           {'title': 'FailedSMS Top10', 'cmd': 'head -n 10 $failedSmsLogPath'},
-          {'title': 'FailedSMS Bottom10', 'cmd': 'tail -n 10 $failedSmsLogPath'},
-          {'title': 'MessageReports.log', 'cmd': 'cat /var/Python/log/MessageReports.log | tail -n 50'},
+          {
+            'title': 'FailedSMS Bottom10',
+            'cmd': 'tail -n 10 $failedSmsLogPath'
+          },
+          {
+            'title': 'MessageReports.log',
+            'cmd': 'cat /var/Python/log/MessageReports.log | tail -n 50'
+          },
           {'title': 'FailedSMS Count', 'cmd': 'wc -l $failedSmsLogPath'},
-          {'title': 'IOT-Service', 'cmd': 'cat /var/Python/Configs/IOT-Service.SKY'},
+          {
+            'title': 'IOT-Service',
+            'cmd': 'cat /var/Python/Configs/IOT-Service.SKY'
+          },
           {'title': 'RPM1', 'cmd': 'cat /var/Python/Status/RPM1.json'},
           {'title': 'RPM2', 'cmd': 'cat /var/Python/Status/RPM2.json'},
           {'title': 'RPM3', 'cmd': 'cat /var/Python/Status/RPM3.json'},
@@ -795,10 +892,19 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
           {'title': 'GPS Raw', 'cmd': 'cat /var/Python/GPS/SAILINK.json'},
           {'title': 'SAT Mode', 'cmd': 'cat /var/Python/Configs/Comm-NET.SKY'},
           {'title': 'SAT Status', 'cmd': '__SAT_STATUS__'},
-          {'title': 'Iridium IMEI', 'cmd': '/var/Python/SAILINK-SREST-INTERVAL-DT.SKY | grep IMEI'},
+          {
+            'title': 'Iridium IMEI',
+            'cmd': '/var/Python/SAILINK-SREST-INTERVAL-DT.SKY | grep IMEI'
+          },
           {'title': 'iTech.log', 'cmd': 'tail -n 50 /var/Python/iTech.log'},
-          {'title': 'THEREACH Process', 'cmd': 'ps -eo pid,lstart,etime,cmd | grep THEREACH'},
-          {'title': 'SAILINK Process', 'cmd': 'ps -eo pid,lstart,etime,cmd | grep SAILINK'},
+          {
+            'title': 'THEREACH Process',
+            'cmd': 'ps -eo pid,lstart,etime,cmd | grep THEREACH'
+          },
+          {
+            'title': 'SAILINK Process',
+            'cmd': 'ps -eo pid,lstart,etime,cmd | grep SAILINK'
+          },
           {'title': 'IRI-MSG.DAT', 'cmd': 'cat /var/Python/log/IRI-MSG.DAT'},
         ]);
       }
@@ -813,7 +919,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
         });
         String out;
         if (cmd == '__SAT_STATUS__') {
-          final satStatusCommand = satStatusCommandForMode(_results['SAT Mode'] ?? '');
+          final satStatusCommand =
+              satStatusCommandForMode(_results['SAT Mode'] ?? '');
           if (satStatusCommand.isEmpty) {
             out = 'Unknown SAT mode';
           } else {
@@ -839,7 +946,10 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
             final gps = (data is Map && data['data'] is Map)
                 ? data['data'] as Map
                 : (data is Map ? data : <String, dynamic>{});
-            final dt = gps['datetimeGMTplus7'] ?? gps['datetime'] ?? gps['time'] ?? '-';
+            final dt = gps['datetimeGMTplus7'] ??
+                gps['datetime'] ??
+                gps['time'] ??
+                '-';
             final lat = gps['latitude'] ?? '-';
             final latHem = gps['latitudeHemisphere'] ?? '';
             final lng = gps['longitude'] ?? '-';
@@ -895,11 +1005,13 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
       });
       _sailinkLogRunning.value = true;
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
-      final satModeRaw = await _run(client, 'cat /var/Python/Configs/Comm-NET.SKY');
+      final satModeRaw =
+          await _run(client, 'cat /var/Python/Configs/Comm-NET.SKY');
       final config = sailinkStartConfigForMode(satModeRaw);
       var hasNonBenignStderr = false;
       var hasBenignStderr = false;
@@ -947,7 +1059,7 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
               ? 'SAILINK start session finished successfully with non-fatal warning.'
               : exitCode == 0 && !hasNonBenignStderr
                   ? 'SAILINK start session finished successfully.'
-              : 'SAILINK start session finished with exit code $exitCode.';
+                  : 'SAILINK start session finished with exit code $exitCode.';
       logBuffer.write('\n----------------------------------------\n$exitLabel');
       _syncSailinkStartLog(logBuffer.toString());
       _sailinkLogRunning.value = false;
@@ -981,6 +1093,15 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
 
   @override
   void dispose() {
+    final activeSession = _activeFailedSmsDownloadSession;
+    if (activeSession != null) {
+      unawaited(
+        _failedSmsStorageService.abortDownload(
+          activeSession,
+          reason: 'cancelled',
+        ),
+      );
+    }
     _sailinkLogScrollController.dispose();
     _sailinkLiveLog.dispose();
     _sailinkLogRunning.dispose();
@@ -1105,7 +1226,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
     SSHClient? client;
     try {
       client = SSHClient(
-        await SSHSocket.connect(host, port, timeout: const Duration(seconds: 5)),
+        await SSHSocket.connect(host, port,
+            timeout: const Duration(seconds: 5)),
         username: username,
         onPasswordRequest: () => password,
       );
@@ -1165,7 +1287,9 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                 Text(
                   _isWifiConnected ? 'CONNECTED' : 'NOT CONNECTED',
                   style: TextStyle(
-                    color: _isWifiConnected ? slapp_color.success : slapp_color.error,
+                    color: _isWifiConnected
+                        ? slapp_color.success
+                        : slapp_color.error,
                     fontWeight: FontWeight.bold,
                     fontSize: 9,
                   ),
@@ -1191,17 +1315,22 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Progress: ${_progress.toStringAsFixed(0)}%',
-                  style: TextStyle(color: slapp_color.black_text, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: slapp_color.black_text,
+                      fontWeight: FontWeight.bold),
                 ),
-                Text('Status: $_status', style: TextStyle(color: slapp_color.black_text)),
-                Text('Step: $_activeStep', style: TextStyle(color: slapp_color.black_text)),
+                Text('Status: $_status',
+                    style: TextStyle(color: slapp_color.black_text)),
+                Text('Step: $_activeStep',
+                    style: TextStyle(color: slapp_color.black_text)),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     style: ButtonStyle(
                       shape: MaterialStateProperty.all<RoundedRectangleBorder>(
-                        const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero),
                       ),
                       backgroundColor: MaterialStateProperty.resolveWith<Color>(
                         (states) {
@@ -1218,7 +1347,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                           MaterialStateProperty.all<Color>(slapp_color.white),
                       elevation: MaterialStateProperty.all<double>(0),
                     ),
-                    onPressed: _isRunning ? null : () => _runDiagnostic(quick: false),
+                    onPressed:
+                        _isRunning ? null : () => _runDiagnostic(quick: false),
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Row(
@@ -1247,7 +1377,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                   child: OutlinedButton(
                     style: ButtonStyle(
                       shape: MaterialStateProperty.all<RoundedRectangleBorder>(
-                        const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.zero),
                       ),
                       side: MaterialStateProperty.resolveWith<BorderSide>(
                         (states) => BorderSide(
@@ -1284,7 +1415,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                     (k) => ExpansionTile(
                       iconColor: slapp_color.primary,
                       collapsedIconColor: slapp_color.primary,
-                      collapsedBackgroundColor: slapp_color.fifthiary.withOpacity(0.08),
+                      collapsedBackgroundColor:
+                          slapp_color.fifthiary.withOpacity(0.08),
                       backgroundColor: slapp_color.fifthiary.withOpacity(0.15),
                       title: Row(
                         children: [
@@ -1297,11 +1429,13 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                               ),
                             ),
                           ),
-                          if (k == 'SAT Status' && _results['SAT Status Summary'] != null)
+                          if (k == 'SAT Status' &&
+                              _results['SAT Status Summary'] != null)
                             Text(
                               _results['SAT Status Summary']!,
                               style: TextStyle(
-                                color: (_results['SAT Status Summary'] == 'CONNECTED')
+                                color: (_results['SAT Status Summary'] ==
+                                        'CONNECTED')
                                     ? slapp_color.success
                                     : slapp_color.error,
                                 fontWeight: FontWeight.bold,
@@ -1347,7 +1481,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                               children: [
                                 Expanded(
                                   child: ElevatedButton.icon(
-                                    onPressed: (_isDownloadingFailedSms || _isClearingFailedSms)
+                                    onPressed: (_isDownloadingFailedSms ||
+                                            _isClearingFailedSms)
                                         ? null
                                         : _downloadFailedSmsLogs,
                                     style: ElevatedButton.styleFrom(
@@ -1384,7 +1519,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                                         : null,
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: slapp_color.error,
-                                      side: BorderSide(color: slapp_color.error),
+                                      side:
+                                          BorderSide(color: slapp_color.error),
                                       shape: const RoundedRectangleBorder(
                                         borderRadius: BorderRadius.zero,
                                       ),
@@ -1404,19 +1540,28 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                               ],
                             ),
                           ),
-                        if (k == 'FailedSMS' && _failedSmsDownloadPath.isNotEmpty)
+                        if (k == 'FailedSMS' &&
+                            _failedSmsDownloadPath.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Saved to: $_failedSmsDownloadPath',
-                                style: TextStyle(
-                                  color: slapp_color.black_text,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Saved to: $_failedSmsDownloadPath',
+                                    style: TextStyle(
+                                      color: slapp_color.black_text,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                TextButton(
+                                  onPressed:
+                                      _showFailedSmsDownloadLocationDialog,
+                                  child: const Text('Detail'),
+                                ),
+                              ],
                             ),
                           ),
                         Container(
@@ -1425,7 +1570,8 @@ class _DiagnosticScreenState extends State<DiagnosticScreen> {
                           color: Colors.black,
                           child: SelectableText(
                             _results[k] ?? '-',
-                            style: const TextStyle(fontFamily: 'monospace', color: Colors.white),
+                            style: const TextStyle(
+                                fontFamily: 'monospace', color: Colors.white),
                           ),
                         ),
                       ],

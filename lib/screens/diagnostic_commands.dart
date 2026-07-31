@@ -25,6 +25,36 @@ class ConsoleAccessSession {
 }
 
 const String failedSmsLogPath = '/var/Python/log/FailedSMS.log';
+const String failedSmsDownloadFolderName = 'sailogger719';
+
+String buildFailedSmsDownloadRelativePath([
+  String folderName = failedSmsDownloadFolderName,
+]) {
+  return 'Download/$folderName';
+}
+
+bool requiresLegacyWriteExternalStorageForFailedSmsDownload({
+  required bool isAndroid,
+  required int androidSdkInt,
+}) {
+  return isAndroid && androidSdkInt <= 28;
+}
+
+String sanitizeFailedSmsDownloadFileName(
+  String raw, {
+  String fallback = 'FailedSMS.log',
+}) {
+  final trimmed = raw.trim();
+  final basename =
+      trimmed.split('/').where((segment) => segment.isNotEmpty).isEmpty
+          ? ''
+          : trimmed.split('/').where((segment) => segment.isNotEmpty).last;
+  final sanitized = basename
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+      .trim()
+      .replaceAll(RegExp(r'^[. ]+|[. ]+$'), '');
+  return sanitized.isEmpty ? fallback : sanitized;
+}
 
 String buildFailedSmsDownloadListCommand() {
   return "sh -lc 'for path in ${failedSmsLogPath}*; "
@@ -45,13 +75,6 @@ String buildFailedSmsDownloadLocationDetails({
       '$directoryPath\n\n'
       'Files:\n'
       '$filesBlock';
-}
-
-bool requiresManageExternalStorageForFailedSmsDownload({
-  required bool isAndroid,
-  required int androidSdkInt,
-}) {
-  return isAndroid && androidSdkInt >= 30;
 }
 
 String buildConsolePassword({

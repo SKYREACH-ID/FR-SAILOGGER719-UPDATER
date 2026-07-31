@@ -112,48 +112,56 @@ void main() {
     test('builds failed sms download location details', () {
       expect(
         buildFailedSmsDownloadLocationDetails(
-          directoryPath: '/storage/emulated/0/Download',
+          directoryPath: 'Download/sailogger719',
           fileNames: ['FailedSMS.log', 'FailedSMS.log--2026-07-16'],
         ),
         'Folder:\n'
-        '/storage/emulated/0/Download\n\n'
+        'Download/sailogger719\n\n'
         'Files:\n'
         'FailedSMS.log\n'
         'FailedSMS.log--2026-07-16',
       );
     });
 
-    test('requires manage external storage for public downloads on android 11+', () {
+    test('builds scoped storage download path inside app folder', () {
       expect(
-        requiresManageExternalStorageForFailedSmsDownload(
-          isAndroid: true,
-          androidSdkInt: 30,
-        ),
-        isTrue,
-      );
-      expect(
-        requiresManageExternalStorageForFailedSmsDownload(
-          isAndroid: true,
-          androidSdkInt: 34,
-        ),
-        isTrue,
+        buildFailedSmsDownloadRelativePath(),
+        'Download/sailogger719',
       );
     });
 
-    test('does not require manage external storage off android 11+', () {
+    test('requires legacy write external storage only on android 9 and below', () {
       expect(
-        requiresManageExternalStorageForFailedSmsDownload(
+        requiresLegacyWriteExternalStorageForFailedSmsDownload(
+          isAndroid: true,
+          androidSdkInt: 28,
+        ),
+        isTrue,
+      );
+      expect(
+        requiresLegacyWriteExternalStorageForFailedSmsDownload(
           isAndroid: true,
           androidSdkInt: 29,
         ),
         isFalse,
       );
       expect(
-        requiresManageExternalStorageForFailedSmsDownload(
+        requiresLegacyWriteExternalStorageForFailedSmsDownload(
           isAndroid: false,
           androidSdkInt: 34,
         ),
         isFalse,
+      );
+    });
+
+    test('sanitizes invalid failed sms file names while keeping original basename', () {
+      expect(
+        sanitizeFailedSmsDownloadFileName(' /var/Python/log/bad:name?.log '),
+        'bad_name_.log',
+      );
+      expect(
+        sanitizeFailedSmsDownloadFileName('../'),
+        'FailedSMS.log',
       );
     });
 
