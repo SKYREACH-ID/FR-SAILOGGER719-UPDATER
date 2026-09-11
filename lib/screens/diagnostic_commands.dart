@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class SailinkStartConfig {
   const SailinkStartConfig({
     required this.modeLabel,
@@ -26,6 +28,73 @@ class ConsoleAccessSession {
 
 const String failedSmsLogPath = '/var/Python/log/FailedSMS.log';
 const String failedSmsDownloadFolderName = 'sailogger719';
+const String failedSmsUpgradePrefix = '1005||00882161900000||';
+
+String extractCommandVersion(String raw) {
+  final versionLine = RegExp(
+    r'VERSI\s*:\s*([0-9]+(?:\.[0-9]+)+)',
+    caseSensitive: false,
+  ).firstMatch(raw);
+  if (versionLine == null) {
+    throw const FormatException('Missing "VERSI :" version line.');
+  }
+  return versionLine.group(1)!;
+}
+
+String buildArr202Flag(String raw) {
+  final decoded = jsonDecode(raw);
+  if (decoded is! Map<String, dynamic>) {
+    throw const FormatException('ARStatusReport root must be a JSON object.');
+  }
+  final status = decoded['status'];
+  if (status is! Map<String, dynamic>) {
+    throw const FormatException('ARStatusReport.status must be a JSON object.');
+  }
+  return status.containsKey('202') ? 'Y' : 'N';
+}
+
+(String, String) formatWibTimestamp(DateTime timestamp) {
+  final wib = timestamp.toUtc().add(const Duration(hours: 7));
+  final dateToken =
+      '${wib.year.toString().padLeft(4, '0')}'
+      '${wib.month.toString().padLeft(2, '0')}'
+      '${wib.day.toString().padLeft(2, '0')}';
+  final timeToken =
+      '${wib.hour.toString().padLeft(2, '0')}'
+      '${wib.minute.toString().padLeft(2, '0')}'
+      '${wib.second.toString().padLeft(2, '0')}';
+  return (dateToken, timeToken);
+}
+
+String buildFailedSmsUpgradeEntry({
+  required String deviceId,
+  required String thrchVersion,
+  required String arr202Flag,
+  required String iotrVersion,
+  required String rdsmsVersion,
+  required DateTime timestampWib,
+}) {
+  final (dateToken, timeToken) = formatWibTimestamp(timestampWib);
+  return '${failedSmsUpgradePrefix}SLNK# ${deviceId.trim()} '
+      'THRCH>${thrchVersion.trim()} - '
+      'ARR202>${arr202Flag.trim()} - '
+      'IOTR>${iotrVersion.trim()} - '
+      'RDSMS>${rdsmsVersion.trim()} '
+      '$dateToken $timeToken UPGRADED';
+}
+
+String buildFailedSmsUpgradeAppendCommand(String entry) {
+  final escapedEntry = _escapeShellSingleQuotes(
+    // entry
+    entry.replaceAll(RegExp(r'[\r\n]+'), ''),
+  );
+  // return "printf '%s' '$escapedEntry' >> $failedSmsLogPath";
+  return "printf '%s\n' '$escapedEntry' >> $failedSmsLogPath";
+}
+
+String _escapeShellSingleQuotes(String value) {
+  return value.replaceAll("'", r"'\''");
+}
 
 String buildFailedSmsDownloadRelativePath([
   String folderName = failedSmsDownloadFolderName,

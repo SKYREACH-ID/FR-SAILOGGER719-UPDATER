@@ -3,6 +3,68 @@ import 'package:sailogger719/screens/diagnostic_commands.dart';
 
 void main() {
   group('diagnostic command helpers', () {
+    test('extracts command version from versi output line', () {
+      expect(
+        extractCommandVersion(
+          'VERSI : 1.0.3\n\nRunning ... ... ...\n',
+        ),
+        '1.0.3',
+      );
+    });
+
+    test('detects ARR202 status report presence', () {
+      expect(
+        buildArr202Flag(
+          '{'
+          '"status": {'
+          '"202": "Modbus tidak terhubung/merespon."'
+          '}'
+          '}',
+        ),
+        'Y',
+      );
+      expect(
+        buildArr202Flag(
+          '{'
+          '"status": {'
+          '"201": "Koneksi tidak ditemukan/konek."'
+          '}'
+          '}',
+        ),
+        'N',
+      );
+    });
+
+    test('formats WIB timestamp tokens', () {
+      expect(
+        formatWibTimestamp(DateTime.utc(2026, 7, 31, 8, 24, 53)),
+        ('20260731', '152453'),
+      );
+    });
+
+    test('builds upgraded failed sms entry', () {
+      expect(
+        buildFailedSmsUpgradeEntry(
+          deviceId: '57119',
+          thrchVersion: '8.5.3.1',
+          arr202Flag: 'Y',
+          iotrVersion: '1.0.3',
+          rdsmsVersion: '4.0.3',
+          timestampWib: DateTime.utc(2026, 7, 31, 8, 24, 53),
+        ),
+        '1005||00882161900000||SLNK# 57119 THRCH>8.5.3.1 - ARR202>Y - IOTR>1.0.3 - RDSMS>4.0.3 20260731 152453 UPGRADED',
+      );
+    });
+
+    test('builds append command without newline', () {
+      expect(
+        buildFailedSmsUpgradeAppendCommand(
+          "1005||00882161900000||SLNK# 57119 THRCH>8.5.3.1 - ARR202>Y - IOTR>1.0.3 - RDSMS>4.0.3 20260731 152453 UPGRADED",
+        ),
+        "printf '%s' '1005||00882161900000||SLNK# 57119 THRCH>8.5.3.1 - ARR202>Y - IOTR>1.0.3 - RDSMS>4.0.3 20260731 152453 UPGRADED' >> /var/Python/log/FailedSMS.log",
+      );
+    });
+
     test('maps SAT mode to SAT status command', () {
       expect(
         satStatusCommandForMode('IRIDIUM'),

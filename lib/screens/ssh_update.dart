@@ -9,6 +9,7 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:sailogger719/constant/colors.dart';
+import 'package:sailogger719/screens/diagnostic_commands.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sailogger719/screens/home_screen.dart';
 import 'package:sailogger719/widgets/app_overlay_message.dart';
@@ -145,6 +146,63 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
     setState(() {
       is_error_cmd = true;
     });
+  }
+
+  Future<String> _runCommandText(
+    SSHClient client,
+    String command, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final result = await client.run(command).timeout(timeout);
+    return String.fromCharCodes(result).trim();
+  }
+
+  String _normalizeDeviceId(String raw) {
+    final firstLine = raw
+        .split(RegExp(r'[\r\n]+'))
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => raw.trim());
+    final digits = firstLine.replaceAll(RegExp(r'[^0-9]'), '');
+    return digits.isNotEmpty ? digits : firstLine;
+  }
+
+  Future<void> _appendUpgradeEntryToFailedSmsLog(SSHClient client) async {
+    final deviceIdRaw = await _runCommandText(
+      client,
+      'cat /var/Python/Configs/ID-IoT.SKY',
+    );
+    final thrchVersionRaw = await _runCommandText(
+      client,
+      'cat /var/Python/Version',
+    );
+    final arStatusReportRaw = await _runCommandText(
+      client,
+      'cat /var/Python/log/ARStatusReport.json || true',
+    );
+    final iotRunRaw = await _runCommandText(
+      client,
+      '/var/Python/SKYREACH-IoT.RUN',
+      timeout: const Duration(seconds: 12),
+    );
+    final readSmsRaw = await _runCommandText(
+      client,
+      '/var/Python/SAILINK-TH-READSMSCOMMAND-DT.SKY',
+      timeout: const Duration(seconds: 12),
+    );
+
+    final entry = buildFailedSmsUpgradeEntry(
+      deviceId: _normalizeDeviceId(deviceIdRaw),
+      thrchVersion: thrchVersionRaw.trim(),
+      arr202Flag: buildArr202Flag(arStatusReportRaw),
+      iotrVersion: extractCommandVersion(iotRunRaw),
+      rdsmsVersion: extractCommandVersion(readSmsRaw),
+      timestampWib: DateTime.now(),
+    );
+
+    await _runCommandText(
+      client,
+      buildFailedSmsUpgradeAppendCommand(entry),
+    );
   }
 
   void getCurrentWifiSSID() async {
@@ -294,6 +352,7 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
         onPasswordRequest: () => password,
       );
 
+      var commandsSucceeded = false;
       try {
         final totalCommands = _commands.length;
         var executedCommands = 0;
@@ -316,24 +375,39 @@ class _SSHFileTransferScreenState extends State<SSHFileTransferScreen> {
                 "Installing Update: $donePercentage% (${executedCommands}/$totalCommands)";
           }
         }
+        commandsSucceeded = true;
       } catch (e) {
+        onCommandError();
         _showOverlayMessage(
           'Error executing commands: $e',
           backgroundColor: slapp_color.error,
           showCloseButton: true,
         );
       } finally {
+        if (commandsSucceeded) {
+          try {
+            await _appendUpgradeEntryToFailedSmsLog(client);
+          } catch (e) {
+            _showOverlayMessage(
+              'Update completed successfully. Some internal records could not be saved. The application can still be used normally.',
+              backgroundColor: slapp_color.error,
+              showCloseButton: true,
+            );
+          }
+        }
         client.close();
-        _showOverlayMessage(
-          "Install Completed",
-          backgroundColor: slapp_color.success,
-          showCloseButton: true,
-        );
-        _progressNotifier.value = "Install Completed";
+        if (commandsSucceeded) {
+          _showOverlayMessage(
+            "Install Completed",
+            backgroundColor: slapp_color.success,
+            showCloseButton: true,
+          );
+          _progressNotifier.value = "Install Completed";
+        }
         await Future.delayed(Duration(seconds: 3));
         setState(() {
           is_install = false;
-          install_completed = true;
+          install_completed = commandsSucceeded;
         });
         removeFile(_filePath);
       }
